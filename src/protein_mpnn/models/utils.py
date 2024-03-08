@@ -1,0 +1,16 @@
+from pathlib import Path
+from torch import nn
+
+
+def get_weights_dir(*args, **kwargs) -> Path: ...
+
+
+# TODO: maybe put each on its own file?
+
+def calculate_conditional_probs(*args, **kwargs) -> None: ...
+
+def calculate_unconditional_probs(*args, **kwargs) -> None: ...
+
+def calculate_score_only(*args, **kwargs) -> None: ...
+
+def generate_sequences(*args, **kwargs) -> None: ...
