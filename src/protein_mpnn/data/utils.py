@@ -3,7 +3,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any, Optional, TypedDict
+from typing import Any, Literal, Optional, TypedDict
 
 
 LOGGER = logging.getLogger(__name__)
@@ -51,12 +51,13 @@ def parse_fasta(filename: PathLike, limit: int = -1, omit: str = "") -> tuple[Se
     return header, ["".join(seq) for seq in sequences]
 
 
-def try_load_jsonl(filename: PathLike | None, fail_msg: str) -> JsonDict | None:
+def try_load_jsonl(filename: PathLike | None, fail_msg: str, success_msg: Optional[str] = None ,mode: Literal["last", "update"] = "last") -> JsonDict | None:
     """Returns a json object from a .jsonl file.
 
     Args:
         filename: Path to .jsonl file or None if missing.
         fail_msg: Message to log if the file cannot be loaded.
+        mode: How to load the multiple json objects.
 
     Returns:
         JsonDict if the data was loaded, else None
@@ -66,7 +67,14 @@ def try_load_jsonl(filename: PathLike | None, fail_msg: str) -> JsonDict | None:
         LOGGER.debug(fail_msg)
     elif os.path.isfile(filename):
         with open(filename, "r") as file:
-            data = json.loads(file.readlines()[-1])
+            if mode == "last":
+                data = json.loads(file.readlines()[-1])
+            else:
+                data = {}
+                for obj in file.readlines():
+                    data.update(json.loads(obj))
+        if success_msg:
+            LOGGER.info(success_msg)
     else:
         LOGGER.debug(f"File {filename!r} not found")
 
