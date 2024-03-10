@@ -20,7 +20,6 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
     "Programming Language :: Python :: 3",
 ]
-dependencies = [ "pytorch >= 1.9" ]
 
 [project.scripts]
 protein_mpnn = "protein_mpnn:main"
