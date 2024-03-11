@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from torch import Tensor
 
-from protein_mpnn.data.utils import parse_fasta
+from protein_mpnn.data_processing.utils import parse_fasta
 from protein_mpnn.features.build_features import scores as _scores, S_to_seq
 
 from protein_mpnn.models.inference_model import ProteinMPNN

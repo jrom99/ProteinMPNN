@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from protein_mpnn.data.utils import (
+from protein_mpnn.data_processing.utils import (
     JsonDict,
     parse_pdb,
     structure_dataset,
