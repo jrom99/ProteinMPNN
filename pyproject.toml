@@ -1,7 +1,6 @@
 [build-system]
 requires = [
-    "setuptools >= 61.0",
-    "setuptools-scm>=8.0"
+    "setuptools >= 61.0"
 ]
 build-backend = "setuptools.build_meta"
 
@@ -24,9 +23,11 @@ classifiers = [
 [project.scripts]
 protein_mpnn = "protein_mpnn:main"
 
-[tool.setuptools.package-data]
+[tool.setuptools.dynamic]
+version = {attr = "protein_mpnn.__version__"}
 
-[tool.setuptools_scm]
+[tool.setuptools.package-data]
+weights = ["models/"]
 
 [tool.pytest.ini_options]
 addopts = [
