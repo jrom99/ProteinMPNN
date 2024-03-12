@@ -1,3 +1,13 @@
+"""utils.py - ProteinMPNN Data Processing Utilities.
+
+DESCRIPTION
+    This module contains utility functions for processing data related to ProteinMPNN.
+
+FUNCTIONS
+    parse_pdb(file, chains, ca_only)
+        Load protein sequence and structure data from a PDB file
+"""
+
 import json
 import logging
 import math
@@ -6,33 +16,47 @@ import re
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Literal, NotRequired, Optional, TypedDict, TypeVar, Union
+from typing import Literal, NotRequired, TypedDict, TypeVar, Union
 
 LOGGER = logging.getLogger(__name__)
-
 PathLike = str | Path
 JsonDict = dict[str, Union[str, int, list, "JsonDict"]]
-
 # PDB id -> (designable chains, fixed chains)
 ChainIdDictType = dict[str, tuple[list[str], list[str]]]
+DEFAULT_COORD = (math.nan, math.nan, math.nan)
+
+
+class EmptyPdbError(Exception):
+    """If a PDB file has no data."""
+
+    def __init__(self, filename: PathLike):
+        """Initialize the exception."""
+        super().__init__(f"Empty PDB file '{filename!s}'")
+
 
 AA1 = "ARNDCQEGHILKMFPSTWYV-"
 AA3 = [
         "ALA", "ARG", "ASN", "ASP", "CYS",
         "GLN", "GLU", "GLY", "HIS", "ILE",
         "LEU", "LYS", "MET", "PHE", "PRO",
-        "SER", "THR", "TRP", "TYR", "VAL", "GAP"
+        "SER", "THR", "TRP", "TYR", "VAL", "GAP",
 ]  # fmt: skip
 AA3_TO_NUM = {a: n for n, a in enumerate(AA3)}
-AA3_TO_AA1 = dict(zip(AA3, AA1))
+AA3_TO_AA1 = dict(zip(AA3, AA1, strict=False))
 
 PDB_LINE_RE = re.compile(
-    r"^(?P<name>ATOM  |HETATM)(?P<serial>[ \d]{5}) (?P<atom>[ a-z]{4}).(?P<resname>[ a-z]{3}) (?P<chain_id>[a-z0-9 ])(?P<resi>[ \d]{4})(?P<resa>.).{4}(?P<x>.{8})(?P<y>.{8})(?P<z>.{8})(?P<occ>.{6})(?P<tmp>.{6})(.{9})(?P<el>.{2})",
-    flags=re.I,
+    r"""(?P<name>ATOM  |HETATM)
+        (?P<serial>[ \d]{5}) (?P<atom>[ a-z]{4}).(?P<resname>[ a-z]{3})
+        (?P<chain_id>[a-z0-9 ])(?P<resi>[ \d]{4})(?P<resa>.).{4}
+        (?P<x>.{8})(?P<y>.{8})(?P<z>.{8})
+        (?P<occ>.{6})(?P<tmp>.{6})(.{9})(?P<el>.{2})""",
+    flags=re.IGNORECASE | re.VERBOSE,
 )
 
 
 class PdbDict(TypedDict):
+    """Protein sequence and coordinates data."""
+
     name: str
     num_of_chains: int
     seq: str
@@ -51,7 +75,7 @@ def _first_val(d: dict[str, T], default: T) -> T:
 
 
 def parse_fasta(filename: PathLike, limit: int = -1, omit: str = "") -> tuple[list[str], list[str]]:
-    """Parses a fasta sequence file into (headers, sequences).
+    """Parse a fasta sequence file into (headers, sequences).
 
     Args:
         filename: Path to fasta file.
@@ -66,7 +90,7 @@ def parse_fasta(filename: PathLike, limit: int = -1, omit: str = "") -> tuple[li
     header: list[str] = []
     sequences: list[list[str]] = []
 
-    with open(filename, "r") as file:
+    with open(filename) as file:
         for line in file.readlines():
             if line.startswith(">"):
                 if len(header) == limit:
@@ -83,15 +107,16 @@ def parse_fasta(filename: PathLike, limit: int = -1, omit: str = "") -> tuple[li
 def try_load_jsonl(
     filename: PathLike | None,
     fail_msg: str,
-    success_msg: Optional[str] = None,
+    success_msg: str | None = None,
     mode: Literal["last", "update"] = "last",
 ) -> JsonDict | None:
-    """Returns a json object from a .jsonl file.
+    """Return a json object from a .jsonl file.
 
     Args:
         filename: Path to .jsonl file or None if missing.
         fail_msg: Message to log if the file cannot be loaded.
-        mode: How to load the multiple json objects.
+        success_msg (optional): Message to log if the file was loaded.
+        mode (optional): How to load the multiple json objects.
 
     Returns:
         JsonDict if the data was loaded, else None
@@ -100,7 +125,7 @@ def try_load_jsonl(
     if filename is None:
         LOGGER.debug(fail_msg)
     elif os.path.isfile(filename):
-        with open(filename, "r") as file:
+        with open(filename) as file:
             if mode == "last":
                 data = json.loads(file.readlines()[-1])
             else:
@@ -115,7 +140,7 @@ def try_load_jsonl(
     return data
 
 
-def parse_pdb(filename: PathLike, chains: str = "", ca_only: bool = False) -> PdbDict:
+def parse_pdb(filename: PathLike, *, chains: str = "", ca_only: bool = False) -> PdbDict:
     """Parses a PDB file.
 
     Args:
@@ -149,7 +174,7 @@ def parse_pdb(filename: PathLike, chains: str = "", ca_only: bool = False) -> Pd
     return pdb_dict
 
 
-def parse_pdb_biounits(filename: PathLike, chains: str = "", atoms: Optional[list[str]] = None):
+def parse_pdb_biounits(filename: PathLike, chains: str = "", atoms: list[str] | None = None):
     """Parse a PDB file into a dictionary with sequence and coordinates per chain.
 
     Args:
@@ -176,11 +201,12 @@ def parse_pdb_biounits(filename: PathLike, chains: str = "", atoms: Optional[lis
     """
     atoms = atoms or ["N", "CA", "C"]
     xyz: defaultdict[
-        str, defaultdict[int, defaultdict[str, dict[str, tuple[float, float, float]]]]
+        str,
+        defaultdict[int, defaultdict[str, dict[str, tuple[float, float, float]]]],
     ] = defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
     seq: defaultdict[str, defaultdict[int, dict[str, str]]] = defaultdict(lambda: defaultdict(dict))
 
-    with open(filename, "r", encoding="utf-8", errors="ignore") as file:
+    with open(filename, encoding="utf-8", errors="ignore") as file:
         for line in file:
             if not (m := PDB_LINE_RE.match(line)):
                 continue
@@ -196,7 +222,7 @@ def parse_pdb_biounits(filename: PathLike, chains: str = "", atoms: Optional[lis
             xyz[chain][resi][atom][resa] = (x, y, z)
 
     if not xyz:
-        raise ValueError(f"Empty PDB file {filename!r}")
+        raise EmptyPdbError(filename)
 
     if chains:
         for ch in list(xyz):
@@ -204,7 +230,6 @@ def parse_pdb_biounits(filename: PathLike, chains: str = "", atoms: Optional[lis
                 del xyz[ch]
                 del seq[ch]
 
-    ANYWHERE = (math.nan, math.nan, math.nan)
     seq_: dict[str, str] = {}
     xyz_: dict[str, dict[str, list[tuple[float, float, float]]]] = {}
 
@@ -213,11 +238,11 @@ def parse_pdb_biounits(filename: PathLike, chains: str = "", atoms: Optional[lis
         min_resi, max_resi = min(coord_data), max(coord_data)
 
         seq_[ch] = "".join(
-            [_first_val(seq_data[resi], "-") for resi in range(min_resi, max_resi + 1)]
+            [_first_val(seq_data[resi], "-") for resi in range(min_resi, max_resi + 1)],
         )
         xyz_[ch] = {
             atom: [
-                _first_val(coord_data[resi][atom], ANYWHERE)
+                _first_val(coord_data[resi][atom], DEFAULT_COORD)
                 for resi in range(min_resi, max_resi + 1)
             ]
             for atom in atoms
@@ -238,7 +263,7 @@ def read_pdb_jsonl(
         jsonl_file: Path to JSONL file.
         truncate (optional): Number of structures to read from file. Defaults to all.
         max_length (optional): Maximum fasta sequence size. Defaults to 100.
-        alphabet (optional): Valid characters to read from file. Defaults to "ACDEFGHIKLMNPQRSTVWYX-".
+        alphabet (optional): Valid characters to read from file. Defaults to normal aminoacids.
 
     Returns:
         A list of PDB data dicts.
@@ -295,30 +320,45 @@ def filter_pdb_dicts(
 
 
 def get_dataset_valid(
-    pdb_path: str | None,
-    get_chains_to_design: list[str] | None,
-    jsonl_path: str | None,
-    chain_id_jsonl: str | None,
+    filename: str | None,
+    chains_to_design: list[str] | str | None,
+    *,
     ca_only: bool,
     max_length: int,
 ) -> tuple[ChainIdDictType, list[PdbDict]]:
-    if pdb_path:
-        pdb_dict = parse_pdb(pdb_path, ca_only=ca_only)
+    """Parses a .pdb or .jsonl file and marks the chains to design.
+
+    Args:
+        filename: Path to .pdb or .jsonl file.
+        chains_to_design: Path to .jsonl or list of chains to design.
+        ca_only: Whether to read only CA data.
+        max_length: Maximum sequence lenght.
+
+    Returns:
+        tuple (chain_ids, dataset_valid) where
+
+        chain_ids is a dict[PDB id -> (designable_chains, fixed_chains)]
+        dataset_valid is a list of PDB data dictionaries
+    """
+    if filename is None or not Path(filename).is_file():
+        raise FileNotFoundError(filename)
+
+    if filename.lower().endswith("pdb"):
+        pdb_dict = parse_pdb(filename, ca_only=ca_only)
         dataset_valid = filter_pdb_dicts(
             [pdb_dict],
             max_length=max_length,
         )
-    elif jsonl_path:
+    else:
         dataset_valid = read_pdb_jsonl(
-            jsonl_path,
+            filename,
             max_length=max_length,
         )
-    else:
-        raise ValueError("Missing input file")
 
-    chain_id_dict: dict | None = (
-        try_load_jsonl(chain_id_jsonl, "chain_id_jsonl is NOT loaded") or {}
-    )
+    if isinstance(chains_to_design, str) and Path(chains_to_design).is_file():
+        chain_id_dict: dict | None = (
+            try_load_jsonl(chains_to_design, "chain_id_jsonl is NOT loaded") or {}
+        )
 
     for pdb_dict in dataset_valid:
         name = pdb_dict["name"]
@@ -329,9 +369,9 @@ def get_dataset_valid(
             key.removeprefix("seq_chain_") for key in pdb_dict if key.startswith("seq_chain")
         ]  # ['A','B', 'C',...]
 
-        if get_chains_to_design:
-            designable_chains = get_chains_to_design
-            fixed_chains = [c for c in all_chains if c not in get_chains_to_design]
+        if chains_to_design:
+            designable_chains = chains_to_design
+            fixed_chains = [c for c in all_chains if c not in chains_to_design]
         else:
             designable_chains = all_chains
             fixed_chains = []

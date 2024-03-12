@@ -32,5 +32,8 @@ weights = ["models/"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-select = ["ALL"]
-ignore = ["TD"]
+
+[tool.ruff.lint]
+pydocstyle.convention = "google"
+select = ["F", "E", "W", "C90", "I", "N", "D", "UP", "ANN0", "S", "FBT", "C4", "PL", "NPY", "TRY", "FURB", "LOG", "RUF"]
+ignore = ["D105", "D107", "PLW"]
