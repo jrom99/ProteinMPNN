@@ -5,9 +5,9 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
+from protein_mpnn.data_processing.utils import PdbDict
 from protein_mpnn.features.utils import PositionalEncodings, gather_edges, gather_nodes
 
-PdbDict = dict[str, Any]
 ChainDataDict = dict[str, tuple[list[str], list[str]]]
 
 
@@ -57,10 +57,10 @@ def tied_featurize(
     tied_pos_list_of_lists_list = []
 
     b = batch[-1]
-    if chain_data is None:
-        masked_chains = list(
-            set(item.removeprefix("seq_chain_") for item in b if item.startswith("seq_chain_"))
-        )
+    if chain_data is None or b["name"] not in chain_data:
+        masked_chains = [
+            item.removeprefix("seq_chain_") for item in b if item.startswith("seq_chain_")
+        ]
         visible_chains = []
     else:
         masked_chains, visible_chains = chain_data[b["name"]]

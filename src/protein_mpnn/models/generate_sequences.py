@@ -34,8 +34,6 @@ def generate_sequences(
     bias_AAs_np,
     model: ProteinMPNN,
     output_folder: Path,
-    score_list: list,
-    global_score_list: list,
     all_probs_list: list,
     all_log_probs_list: list,
     S_sample_list: list,
@@ -72,6 +70,9 @@ def generate_sequences(
 
     if save_probs:
         PROBS_FOLDER.mkdir(exist_ok=True)
+
+    score_list = []
+    global_score_list = []
 
     randn_1 = torch.randn(chain_M.shape, device=X.device)
     log_probs = model(

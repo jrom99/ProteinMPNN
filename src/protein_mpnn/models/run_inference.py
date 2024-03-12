@@ -6,13 +6,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from protein_mpnn.data_processing.utils import (
-    JsonDict,
-    parse_pdb,
-    structure_dataset,
-    structure_dataset_pdb,
-    try_load_jsonl,
-)
+from protein_mpnn.data_processing.utils import get_dataset_valid, try_load_jsonl
 from protein_mpnn.features.build_features import tied_featurize
 from protein_mpnn.models import HIDDEN_DIM, NUM_LAYERS
 from protein_mpnn.models.calculate_probs import (
@@ -27,44 +21,9 @@ from protein_mpnn.utils import Namespace
 
 LOGGER = logging.getLogger(__name__)
 
-# TODO: replace with actual arguments
-
-
-def get_dataset_valid(args: Namespace, chain_id_dict: JsonDict | None):
-    if args.pdb_path:
-        pdb_dict = parse_pdb(args.pdb_path, ca_only=args.ca_only)
-        dataset_valid = structure_dataset_pdb(
-            pdb_dict,
-            max_length=args.max_length,
-        )
-        if not chain_id_dict:
-            all_chain_list = [
-                key.removeprefix("seq_chain_") for key in pdb_dict if key.startswith("seq_chain")
-            ]  # ['A','B', 'C',...]
-            if args.pdb_path_chains:
-                designed_chain_list = [str(item) for item in args.pdb_path_chains.split()]
-            else:
-                designed_chain_list = all_chain_list
-            fixed_chain_list = [
-                letter for letter in all_chain_list if letter not in designed_chain_list
-            ]
-            chain_id_dict = {
-                pdb_dict["name"]: (
-                    designed_chain_list,
-                    fixed_chain_list,
-                )
-            }
-    elif args.jsonl_path:
-        dataset_valid = structure_dataset(
-            args.jsonl_path,
-            max_length=args.max_length,
-        )
-    else:
-        raise ValueError("Missing input file")
-    return chain_id_dict, dataset_valid
-
 
 # TODO: replace with actual arguments
+# TODO: check omit_AA_dict versus omit_AA_np versus omit_AA_mask
 
 
 def run_inference(args: Namespace):
@@ -84,7 +43,6 @@ def run_inference(args: Namespace):
     omit_AAs_np = np.array([AA in omit_AAs_list for AA in alphabet]).astype(np.float32)
     device = torch.device("cuda:0" if (torch.cuda.is_available()) else "cpu")
 
-    chain_id_dict = try_load_jsonl(args.chain_id_jsonl, "chain_id_jsonl is NOT loaded")
     fixed_positions_dict = try_load_jsonl(
         args.fixed_positions_jsonl, "fixed_positions_jsonl is NOT loaded"
     )
@@ -108,7 +66,14 @@ def run_inference(args: Namespace):
             if AA in list(bias_AA_dict.keys()):
                 bias_AAs_np[n] = bias_AA_dict[AA]
 
-    chain_id_dict, dataset_valid = get_dataset_valid(args, chain_id_dict)
+    chain_id_dict, dataset_valid = get_dataset_valid(
+        args.pdb_path,
+        args.design_chains,
+        args.jsonl_path,
+        args.chain_id_jsonl,
+        args.ca_only,
+        args.max_length,
+    )
 
     checkpoint = torch.load(checkpoint_path, map_location=device)
     noise_level_print = checkpoint["noise_level"]
@@ -135,21 +100,15 @@ def run_inference(args: Namespace):
     output_folder = Path(args.out_folder).resolve()
     output_folder.mkdir(parents=True, exist_ok=True)
 
-    # Timing
-    # start_time = time.perf_counter()
-    # total_residues = 0
-    # protein_list = []
-    # total_step = 0
     # Validation epoch
     with torch.no_grad():
         # test_sum, test_weights = 0.0, 0.0
         for protein in dataset_valid:
-            score_list = []
-            global_score_list = []
+            name_ = protein["name"]
             all_probs_list = []
             all_log_probs_list = []
             S_sample_list = []
-            batch_clones = [copy.deepcopy(protein) for i in range(BATCH_COPIES)]
+            batch_clones = [copy.deepcopy(protein) for _ in range(BATCH_COPIES)]
             (
                 X,
                 S,
@@ -185,7 +144,6 @@ def run_inference(args: Namespace):
             pssm_log_odds_mask = (
                 pssm_log_odds_all > args.pssm_threshold
             ).float()  # 1.0 for true, 0.0 for false
-            name_ = str(batch_clones[0]["name"])
 
             if args.score_only:
                 calculate_score_only(
@@ -251,8 +209,6 @@ def run_inference(args: Namespace):
                     bias_AAs_np,
                     model,
                     output_folder,
-                    score_list,
-                    global_score_list,
                     all_probs_list,
                     all_log_probs_list,
                     S_sample_list,

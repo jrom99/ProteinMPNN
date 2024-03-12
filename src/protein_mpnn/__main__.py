@@ -2,6 +2,8 @@ from protein_mpnn.utils import Namespace
 
 import argparse
 
+# TODO: merge design_chains and chain_id_jsonl
+# TODO: merge pdb_path and jsonl_path
 
 parser = argparse.ArgumentParser()
 
@@ -100,9 +102,13 @@ grp.add_argument("--pdb_path", help="Path to a single PDB to be designed")
 grp.add_argument("--jsonl_path", help="Path to a folder with parsed pdb into jsonl")
 
 parser.add_argument(
-    "--pdb_path_chains",
-    help="Define which chains need to be designed for a single PDB ",
+    "--design_chains",
+    nargs="+",
+    metavar="C",
+    default=None,
+    help="Define which chains need to be designed",
 )
+
 parser.add_argument(
     "--chain_id_jsonl",
     help="Path to a dictionary specifying which chains need to be designed and which ones are fixed, if not specied all chains will be designed.",

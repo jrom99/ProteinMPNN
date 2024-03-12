@@ -23,7 +23,7 @@ class Namespace(argparse.Namespace):
     sampling_temp: list[float]
     out_folder: str
     pdb_path: str | None
-    pdb_path_chains: str | None
+    design_chains: list[str] | None
     jsonl_path: str | None
     chain_id_jsonl: str | None
     fixed_positions_jsonl: str | None
