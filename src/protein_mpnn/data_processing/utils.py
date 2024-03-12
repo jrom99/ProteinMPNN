@@ -6,12 +6,12 @@ import re
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Literal, NotRequired, Optional, TypedDict, TypeVar
+from typing import Literal, NotRequired, Optional, TypedDict, TypeVar, Union
 
 LOGGER = logging.getLogger(__name__)
 
 PathLike = str | Path
-JsonDict = dict[str, str | int | list | "JsonDict"]
+JsonDict = dict[str, Union[str, int, list, "JsonDict"]]
 
 # PDB id -> (designable chains, fixed chains)
 ChainIdDictType = dict[str, tuple[list[str], list[str]]]
@@ -42,6 +42,7 @@ class PdbDict(TypedDict):
 
 
 T = TypeVar("T")
+
 
 def _first_val(d: dict[str, T], default: T) -> T:
     if not d:

@@ -17,7 +17,7 @@ from protein_mpnn.models.calculate_score import calculate_score_only
 from protein_mpnn.models.generate_sequences import generate_sequences
 from protein_mpnn.models.inference_model import ProteinMPNN
 from protein_mpnn.models.utils import get_model
-from protein_mpnn.utils import Namespace
+from protein_mpnn.cli import Namespace
 
 LOGGER = logging.getLogger(__name__)
 
