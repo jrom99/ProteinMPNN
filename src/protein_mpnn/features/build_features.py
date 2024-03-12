@@ -1,12 +1,14 @@
+"""Builds torch features from protein structure data."""
+
 from typing import Any, Optional
 
 import numpy as np
 import torch
-from torch import nn
-from torch.nn import functional as F
-
+from numpy.typing import NDArray
 from protein_mpnn.data_processing.utils import PdbDict
 from protein_mpnn.features.utils import PositionalEncodings, gather_edges, gather_nodes
+from torch import Tensor, nn
+from torch.nn import functional as F
 
 ChainDataDict = dict[str, tuple[list[str], list[str]]]
 
@@ -14,41 +16,45 @@ ChainDataDict = dict[str, tuple[list[str], list[str]]]
 def tied_featurize(
     batch: list[PdbDict],
     device: torch.device,
+    *,
     chain_data: ChainDataDict | None,
     fixed_position_data: Optional[dict] = None,
-    omit_AA_data: Optional[dict] = None,
+    omit_aa_data: Optional[dict] = None,
     tied_positions_data: Optional[dict] = None,
     pssm_data: Optional[dict] = None,
     bias_by_res_data: Optional[dict] = None,
     ca_only: bool = False,
 ):
-    """Pack and pad batch into torch tensors"""
+    """Pack and pad batch into torch tensors."""
     alphabet = "ACDEFGHIKLMNPQRSTVWYX"
-    B = len(batch)
+    batch_size = len(batch)
     lengths = np.array([len(b["seq"]) for b in batch], dtype=np.int32)  # sum of chain seq lengths
-    L_max = max([len(b["seq"]) for b in batch])
+    max_len = max([len(b["seq"]) for b in batch])
     if ca_only:
-        X = np.zeros([B, L_max, 1, 3])
+        x_array = np.zeros([batch_size, max_len, 1, 3])
     else:
-        X = np.zeros([B, L_max, 4, 3])
-    residue_idx = -100 * np.ones([B, L_max], dtype=np.int32)
-    chain_M = np.zeros([B, L_max], dtype=np.int32)  # 1.0 for the bits that need to be predicted
-    pssm_coef_all = np.zeros(
-        [B, L_max], dtype=np.float32
-    )  # 1.0 for the bits that need to be predicted
-    pssm_bias_all = np.zeros(
-        [B, L_max, 21], dtype=np.float32
-    )  # 1.0 for the bits that need to be predicted
-    pssm_log_odds_all = 10000.0 * np.ones(
-        [B, L_max, 21], dtype=np.float32
-    )  # 1.0 for the bits that need to be predicted
-    chain_M_pos = np.zeros([B, L_max], dtype=np.int32)  # 1.0 for the bits that need to be predicted
-    bias_by_res_all = np.zeros([B, L_max, 21], dtype=np.float32)
-    chain_encoding_all = np.zeros(
-        [B, L_max], dtype=np.int32
-    )  # 1.0 for the bits that need to be predicted
-    S = np.zeros([B, L_max], dtype=np.int32)
-    omit_AA_mask = np.zeros([B, L_max, len(alphabet)], dtype=np.int32)
+        x_array = np.zeros([batch_size, max_len, 4, 3])
+    residue_idx = -100 * np.ones([batch_size, max_len], dtype=np.int32)
+    # 1.0 for the bits that need to be predicted
+    chain_m = np.zeros([batch_size, max_len], dtype=np.int32)
+    # 1.0 for the bits that need to be predicted
+    chain_m_pos = np.zeros([batch_size, max_len], dtype=np.int32)
+
+    # 1.0 for the bits that need to be predicted
+    pssm_coef_all = np.zeros([batch_size, max_len], dtype=np.float32)
+    # 1.0 for the bits that need to be predicted
+    pssm_bias_all = np.zeros([batch_size, max_len, 21], dtype=np.float32)
+    # 1.0 for the bits that need to be predicted
+    pssm_log_odds_all = 10000.0 * np.ones([batch_size, max_len, 21], dtype=np.float32)
+
+    bias_by_res_all = np.zeros([batch_size, max_len, 21], dtype=np.float32)
+
+    # 1.0 for the bits that need to be predicted
+    chain_encoding_all = np.zeros([batch_size, max_len], dtype=np.int32)
+
+    s_array = np.zeros([batch_size, max_len], dtype=np.int32)
+    omit_aa_mask = np.zeros([batch_size, max_len, len(alphabet)], dtype=np.int32)
+
     # Build the batch
     letter_list_list = []
     visible_list_list = []
@@ -56,18 +62,10 @@ def tied_featurize(
     masked_chain_length_list_list = []
     tied_pos_list_of_lists_list = []
 
-    b = batch[-1]
-    if chain_data is None or b["name"] not in chain_data:
-        masked_chains = [
-            item.removeprefix("seq_chain_") for item in b if item.startswith("seq_chain_")
-        ]
-        visible_chains = []
-    else:
-        masked_chains, visible_chains = chain_data[b["name"]]
+    masked_chains, visible_chains = _get_chain_data(batch[-1], chain_data)
 
     masked_chains.sort()  # sort masked_chains
     visible_chains.sort()  # sort visible_chains
-    all_chains = [*masked_chains, *visible_chains]
 
     for i, b in enumerate(batch):
         # mask_dict = {}
@@ -83,137 +81,136 @@ def tied_featurize(
         masked_list = []
         masked_chain_length_list = []
         fixed_position_mask_list = []
-        omit_AA_mask_list = []
+        omit_aa_mask_list = []
         pssm_coef_list = []
         pssm_bias_list = []
         pssm_log_odds_list = []
         bias_by_res_list = []
         l0 = 0
         l1 = 0
-        for step, letter in enumerate(all_chains):
-            if letter in visible_chains:
-                letter_list.append(letter)
-                visible_list.append(letter)
-                chain_seq = b[f"seq_chain_{letter}"]
-                chain_seq = "".join([a if a != "-" else "X" for a in chain_seq])
-                chain_length = len(chain_seq)
-                global_idx_start_list.append(global_idx_start_list[-1] + chain_length)
-                chain_coords = b[f"coords_chain_{letter}"]  # this is a dictionary
-                chain_mask = np.zeros(chain_length)  # 0.0 for visible chains
-                if ca_only:
-                    x_chain = np.array(
-                        chain_coords[f"CA_chain_{letter}"]
-                    )  # [chain_lenght,1,3] #CA_diff
-                    if len(x_chain.shape) == 2:
-                        x_chain = x_chain[:, None, :]
-                else:
-                    x_chain = np.stack(
-                        [
-                            chain_coords[c]
-                            for c in [
-                                f"N_chain_{letter}",
-                                f"CA_chain_{letter}",
-                                f"C_chain_{letter}",
-                                f"O_chain_{letter}",
-                            ]
-                        ],
-                        1,
-                    )  # [chain_lenght,4,3]
-                x_chain_list.append(x_chain)
-                chain_mask_list.append(chain_mask)
-                chain_seq_list.append(chain_seq)
-                chain_encoding_list.append(c * np.ones(np.array(chain_mask).shape[0]))
-                l1 += chain_length
-                residue_idx[i, l0:l1] = 100 * (c - 1) + np.arange(l0, l1)
-                l0 += chain_length
-                c += 1
-                fixed_position_mask = np.ones(chain_length)
-                fixed_position_mask_list.append(fixed_position_mask)
-                omit_AA_mask_temp = np.zeros([chain_length, len(alphabet)], np.int32)
-                omit_AA_mask_list.append(omit_AA_mask_temp)
-                pssm_coef = np.zeros(chain_length)
-                pssm_bias = np.zeros([chain_length, 21])
-                pssm_log_odds = 10000.0 * np.ones([chain_length, 21])
-                pssm_coef_list.append(pssm_coef)
-                pssm_bias_list.append(pssm_bias)
-                pssm_log_odds_list.append(pssm_log_odds)
+        for letter in masked_chains:
+            letter_list.append(letter)
+            masked_list.append(letter)
+            chain_seq = b[f"seq_chain_{letter}"]
+            chain_seq = "".join([a if a != "-" else "X" for a in chain_seq])
+            chain_length = len(chain_seq)
+            global_idx_start_list.append(global_idx_start_list[-1] + chain_length)
+            masked_chain_length_list.append(chain_length)
+            chain_coords = b[f"coords_chain_{letter}"]  # this is a dictionary
+            chain_mask = np.ones(chain_length)  # 1.0 for masked
+            if ca_only:
+                x_chain = np.array(
+                    chain_coords[f"CA_chain_{letter}"]
+                )  # [chain_lenght,1,3] #CA_diff
+                if len(x_chain.shape) == 2:
+                    x_chain = x_chain[:, None, :]
+            else:
+                x_chain = np.stack(
+                    [
+                        chain_coords[c]
+                        for c in [
+                            f"N_chain_{letter}",
+                            f"CA_chain_{letter}",
+                            f"C_chain_{letter}",
+                            f"O_chain_{letter}",
+                        ]
+                    ],
+                    1,
+                )  # [chain_lenght,4,3]
+            x_chain_list.append(x_chain)
+            chain_mask_list.append(chain_mask)
+            chain_seq_list.append(chain_seq)
+            chain_encoding_list.append(c * np.ones(np.array(chain_mask).shape[0]))
+            l1 += chain_length
+            residue_idx[i, l0:l1] = 100 * (c - 1) + np.arange(l0, l1)
+            l0 += chain_length
+            c += 1
+            fixed_position_mask = np.ones(chain_length)
+            if fixed_position_data is not None:
+                fixed_pos_list = fixed_position_data[b["name"]][letter]
+                if fixed_pos_list:
+                    fixed_position_mask[np.array(fixed_pos_list) - 1] = 0.0
+            fixed_position_mask_list.append(fixed_position_mask)
+            omit_aa_mask_temp = np.zeros([chain_length, len(alphabet)], np.int32)
+            if omit_aa_data is not None:
+                for item in omit_aa_data[b["name"]][letter]:
+                    idx_aa = np.array(item[0]) - 1
+                    aa_idx = np.array(
+                        [np.argwhere(np.array(list(alphabet)) == AA)[0][0] for AA in item[1]]
+                    ).repeat(idx_aa.shape[0])
+                    idx_ = np.array([[a, b] for a in idx_aa for b in aa_idx])
+                    omit_aa_mask_temp[idx_[:, 0], idx_[:, 1]] = 1
+            omit_aa_mask_list.append(omit_aa_mask_temp)
+            pssm_coef = np.zeros(chain_length)
+            pssm_bias = np.zeros([chain_length, 21])
+            pssm_log_odds = 10000.0 * np.ones([chain_length, 21])
+            if pssm_data:
+                if pssm_data[b["name"]][letter]:
+                    pssm_coef = pssm_data[b["name"]][letter]["pssm_coef"]
+                    pssm_bias = pssm_data[b["name"]][letter]["pssm_bias"]
+                    pssm_log_odds = pssm_data[b["name"]][letter]["pssm_log_odds"]
+            pssm_coef_list.append(pssm_coef)
+            pssm_bias_list.append(pssm_bias)
+            pssm_log_odds_list.append(pssm_log_odds)
+            if bias_by_res_data:
+                bias_by_res_list.append(bias_by_res_data[b["name"]][letter])
+            else:
                 bias_by_res_list.append(np.zeros([chain_length, 21]))
-            if letter in masked_chains:
-                masked_list.append(letter)
-                letter_list.append(letter)
-                chain_seq = b[f"seq_chain_{letter}"]
-                chain_seq = "".join([a if a != "-" else "X" for a in chain_seq])
-                chain_length = len(chain_seq)
-                global_idx_start_list.append(global_idx_start_list[-1] + chain_length)
-                masked_chain_length_list.append(chain_length)
-                chain_coords = b[f"coords_chain_{letter}"]  # this is a dictionary
-                chain_mask = np.ones(chain_length)  # 1.0 for masked
-                if ca_only:
-                    x_chain = np.array(
-                        chain_coords[f"CA_chain_{letter}"]
-                    )  # [chain_lenght,1,3] #CA_diff
-                    if len(x_chain.shape) == 2:
-                        x_chain = x_chain[:, None, :]
-                else:
-                    x_chain = np.stack(
-                        [
-                            chain_coords[c]
-                            for c in [
-                                f"N_chain_{letter}",
-                                f"CA_chain_{letter}",
-                                f"C_chain_{letter}",
-                                f"O_chain_{letter}",
-                            ]
-                        ],
-                        1,
-                    )  # [chain_lenght,4,3]
-                x_chain_list.append(x_chain)
-                chain_mask_list.append(chain_mask)
-                chain_seq_list.append(chain_seq)
-                chain_encoding_list.append(c * np.ones(np.array(chain_mask).shape[0]))
-                l1 += chain_length
-                residue_idx[i, l0:l1] = 100 * (c - 1) + np.arange(l0, l1)
-                l0 += chain_length
-                c += 1
-                fixed_position_mask = np.ones(chain_length)
-                if fixed_position_data is not None:
-                    fixed_pos_list = fixed_position_data[b["name"]][letter]
-                    if fixed_pos_list:
-                        fixed_position_mask[np.array(fixed_pos_list) - 1] = 0.0
-                fixed_position_mask_list.append(fixed_position_mask)
-                omit_AA_mask_temp = np.zeros([chain_length, len(alphabet)], np.int32)
-                if omit_AA_data is not None:
-                    for item in omit_AA_data[b["name"]][letter]:
-                        idx_AA = np.array(item[0]) - 1
-                        AA_idx = np.array(
-                            [np.argwhere(np.array(list(alphabet)) == AA)[0][0] for AA in item[1]]
-                        ).repeat(idx_AA.shape[0])
-                        idx_ = np.array([[a, b] for a in idx_AA for b in AA_idx])
-                        omit_AA_mask_temp[idx_[:, 0], idx_[:, 1]] = 1
-                omit_AA_mask_list.append(omit_AA_mask_temp)
-                pssm_coef = np.zeros(chain_length)
-                pssm_bias = np.zeros([chain_length, 21])
-                pssm_log_odds = 10000.0 * np.ones([chain_length, 21])
-                if pssm_data:
-                    if pssm_data[b["name"]][letter]:
-                        pssm_coef = pssm_data[b["name"]][letter]["pssm_coef"]
-                        pssm_bias = pssm_data[b["name"]][letter]["pssm_bias"]
-                        pssm_log_odds = pssm_data[b["name"]][letter]["pssm_log_odds"]
-                pssm_coef_list.append(pssm_coef)
-                pssm_bias_list.append(pssm_bias)
-                pssm_log_odds_list.append(pssm_log_odds)
-                if bias_by_res_data:
-                    bias_by_res_list.append(bias_by_res_data[b["name"]][letter])
-                else:
-                    bias_by_res_list.append(np.zeros([chain_length, 21]))
+
+        for letter in visible_chains:
+            letter_list.append(letter)
+            visible_list.append(letter)
+            chain_seq = b[f"seq_chain_{letter}"]
+            chain_seq = "".join([a if a != "-" else "X" for a in chain_seq])
+            chain_length = len(chain_seq)
+            global_idx_start_list.append(global_idx_start_list[-1] + chain_length)
+            chain_coords = b[f"coords_chain_{letter}"]  # this is a dictionary
+            chain_mask = np.zeros(chain_length)  # 0.0 for visible chains
+            if ca_only:
+                x_chain = np.array(
+                    chain_coords[f"CA_chain_{letter}"]
+                )  # [chain_lenght,1,3] #CA_diff
+                if len(x_chain.shape) == 2:
+                    x_chain = x_chain[:, None, :]
+            else:
+                x_chain = np.stack(
+                    [
+                        chain_coords[c]
+                        for c in [
+                            f"N_chain_{letter}",
+                            f"CA_chain_{letter}",
+                            f"C_chain_{letter}",
+                            f"O_chain_{letter}",
+                        ]
+                    ],
+                    1,
+                )  # [chain_lenght,4,3]
+            x_chain_list.append(x_chain)
+            chain_mask_list.append(chain_mask)
+            chain_seq_list.append(chain_seq)
+            chain_encoding_list.append(c * np.ones(np.array(chain_mask).shape[0]))
+            l1 += chain_length
+            residue_idx[i, l0:l1] = 100 * (c - 1) + np.arange(l0, l1)
+            l0 += chain_length
+            c += 1
+            fixed_position_mask = np.ones(chain_length)
+            fixed_position_mask_list.append(fixed_position_mask)
+            omit_aa_mask_temp = np.zeros([chain_length, len(alphabet)], np.int32)
+            omit_aa_mask_list.append(omit_aa_mask_temp)
+            pssm_coef = np.zeros(chain_length)
+            pssm_bias = np.zeros([chain_length, 21])
+            pssm_log_odds = 10000.0 * np.ones([chain_length, 21])
+            pssm_coef_list.append(pssm_coef)
+            pssm_bias_list.append(pssm_bias)
+            pssm_log_odds_list.append(pssm_log_odds)
+            bias_by_res_list.append(np.zeros([chain_length, 21]))
 
         letter_list_np = np.array(letter_list)
         tied_pos_list_of_lists = []
-        tied_beta = np.ones(L_max)
+        tied_beta = np.ones(max_len)
         if tied_positions_data is not None:
             tied_pos_list = tied_positions_data[b["name"]]
             if tied_pos_list:
-                # set_chains_tied = set(list(itertools.chain(*[list(item) for item in tied_pos_list])))
                 for tied_item in tied_pos_list:
                     one_list = []
                     for k, v in tied_item.items():
@@ -234,51 +231,48 @@ def tied_featurize(
         all_sequence = "".join(chain_seq_list)
         m = np.concatenate(chain_mask_list, 0)  # [L,], 1.0 for places that need to be predicted
         chain_encoding = np.concatenate(chain_encoding_list, 0)
-        m_pos = np.concatenate(
-            fixed_position_mask_list, 0
-        )  # [L,], 1.0 for places that need to be predicted
+        # [L,], 1.0 for places that need to be predicted
+        m_pos = np.concatenate(fixed_position_mask_list, 0)
 
-        pssm_coef_ = np.concatenate(
-            pssm_coef_list, 0
-        )  # [L,], 1.0 for places that need to be predicted
-        pssm_bias_ = np.concatenate(
-            pssm_bias_list, 0
-        )  # [L,], 1.0 for places that need to be predicted
-        pssm_log_odds_ = np.concatenate(
-            pssm_log_odds_list, 0
-        )  # [L,], 1.0 for places that need to be predicted
+        # [L,], 1.0 for places that need to be predicted
+        pssm_coef_ = np.concatenate(pssm_coef_list, 0)
+        # [L,], 1.0 for places that need to be predicted
+        pssm_bias_ = np.concatenate(pssm_bias_list, 0)
+        # [L,], 1.0 for places that need to be predicted
+        pssm_log_odds_ = np.concatenate(pssm_log_odds_list, 0)
 
-        bias_by_res_ = np.concatenate(
-            bias_by_res_list, 0
-        )  # [L,21], 0.0 for places where AA frequencies don't need to be tweaked
+        # [L,21], 0.0 for places where AA frequencies don't need to be tweaked
+        bias_by_res_ = np.concatenate(bias_by_res_list, 0)
 
         ll = len(all_sequence)
-        x_pad = np.pad(x, [[0, L_max - ll], [0, 0], [0, 0]], "constant", constant_values=(np.nan,))
-        X[i, :, :, :] = x_pad
+        x_pad = np.pad(
+            x, [[0, max_len - ll], [0, 0], [0, 0]], "constant", constant_values=(np.nan,)
+        )
+        x_array[i, :, :, :] = x_pad
 
-        m_pad = np.pad(m, [[0, L_max - ll]], "constant", constant_values=(0.0,))
-        m_pos_pad = np.pad(m_pos, [[0, L_max - ll]], "constant", constant_values=(0.0,))
-        omit_AA_mask_pad = np.pad(
-            np.concatenate(omit_AA_mask_list, 0),
-            [[0, L_max - ll]],
+        m_pad = np.pad(m, [[0, max_len - ll]], "constant", constant_values=(0.0,))
+        m_pos_pad = np.pad(m_pos, [[0, max_len - ll]], "constant", constant_values=(0.0,))
+        omit_aa_mask_pad = np.pad(
+            np.concatenate(omit_aa_mask_list, 0),
+            [[0, max_len - ll]],
             "constant",
             constant_values=(0.0,),
         )
-        chain_M[i, :] = m_pad
-        chain_M_pos[i, :] = m_pos_pad
-        omit_AA_mask[i,] = omit_AA_mask_pad
+        chain_m[i, :] = m_pad
+        chain_m_pos[i, :] = m_pos_pad
+        omit_aa_mask[i,] = omit_aa_mask_pad
 
         chain_encoding_pad = np.pad(
-            chain_encoding, [[0, L_max - ll]], "constant", constant_values=(0.0,)
+            chain_encoding, [[0, max_len - ll]], "constant", constant_values=(0.0,)
         )
         chain_encoding_all[i, :] = chain_encoding_pad
 
-        pssm_coef_pad = np.pad(pssm_coef_, [[0, L_max - ll]], "constant", constant_values=(0.0,))
+        pssm_coef_pad = np.pad(pssm_coef_, [[0, max_len - ll]], "constant", constant_values=(0.0,))
         pssm_bias_pad = np.pad(
-            pssm_bias_, [[0, L_max - ll], [0, 0]], "constant", constant_values=(0.0,)
+            pssm_bias_, [[0, max_len - ll], [0, 0]], "constant", constant_values=(0.0,)
         )
         pssm_log_odds_pad = np.pad(
-            pssm_log_odds_, [[0, L_max - ll], [0, 0]], "constant", constant_values=(0.0,)
+            pssm_log_odds_, [[0, max_len - ll], [0, 0]], "constant", constant_values=(0.0,)
         )
 
         pssm_coef_all[i, :] = pssm_coef_pad
@@ -286,21 +280,21 @@ def tied_featurize(
         pssm_log_odds_all[i, :] = pssm_log_odds_pad
 
         bias_by_res_pad = np.pad(
-            bias_by_res_, [[0, L_max - ll], [0, 0]], "constant", constant_values=(0.0,)
+            bias_by_res_, [[0, max_len - ll], [0, 0]], "constant", constant_values=(0.0,)
         )
         bias_by_res_all[i, :] = bias_by_res_pad
 
         # Convert to labels
         indices = np.asarray([alphabet.index(a) for a in all_sequence], dtype=np.int32)
-        S[i, :ll] = indices
+        s_array[i, :ll] = indices
         letter_list_list.append(letter_list)
         visible_list_list.append(visible_list)
         masked_list_list.append(masked_list)
         masked_chain_length_list_list.append(masked_chain_length_list)
 
-    isnan = np.isnan(X)
-    mask = np.isfinite(np.sum(X, (2, 3))).astype(np.float32)
-    X[isnan] = 0.0
+    isnan = np.isnan(x_array)
+    mask = np.isfinite(np.sum(x_array, (2, 3))).astype(np.float32)
+    x_array[isnan] = 0.0
 
     # Conversion
     pssm_coef_all = torch.from_numpy(pssm_coef_all).to(dtype=torch.float32, device=device)
@@ -314,35 +308,38 @@ def tied_featurize(
     phi_mask = np.pad(jumps, [[0, 0], [1, 0]])
     psi_mask = np.pad(jumps, [[0, 0], [0, 1]])
     omega_mask = np.pad(jumps, [[0, 0], [0, 1]])
+
+    # [B,L,3]
     dihedral_mask = np.concatenate(
         [phi_mask[:, :, None], psi_mask[:, :, None], omega_mask[:, :, None]], -1
-    )  # [B,L,3]
+    )
     dihedral_mask = torch.from_numpy(dihedral_mask).to(dtype=torch.float32, device=device)
     residue_idx = torch.from_numpy(residue_idx).to(dtype=torch.long, device=device)
-    S = torch.from_numpy(S).to(dtype=torch.long, device=device)
-    X = torch.from_numpy(X).to(dtype=torch.float32, device=device)
+    s_array = torch.from_numpy(s_array).to(dtype=torch.long, device=device)
+    x_array = torch.from_numpy(x_array).to(dtype=torch.float32, device=device)
     mask = torch.from_numpy(mask).to(dtype=torch.float32, device=device)
-    chain_M = torch.from_numpy(chain_M).to(dtype=torch.float32, device=device)
-    chain_M_pos = torch.from_numpy(chain_M_pos).to(dtype=torch.float32, device=device)
-    omit_AA_mask = torch.from_numpy(omit_AA_mask).to(dtype=torch.float32, device=device)
+    chain_m = torch.from_numpy(chain_m).to(dtype=torch.float32, device=device)
+    chain_m_pos = torch.from_numpy(chain_m_pos).to(dtype=torch.float32, device=device)
+    omit_aa_mask = torch.from_numpy(omit_aa_mask).to(dtype=torch.float32, device=device)
     chain_encoding_all = torch.from_numpy(chain_encoding_all).to(dtype=torch.long, device=device)
+
     if ca_only:
-        X_out = X[:, :, 0]
+        x_out = x_array[:, :, 0]
     else:
-        X_out = X
+        x_out = x_array
     return (
-        X_out,
-        S,
+        x_out,
+        s_array,
         mask,
         lengths,
-        chain_M,
+        chain_m,
         chain_encoding_all,
         letter_list_list,
         visible_list_list,
         masked_list_list,
         masked_chain_length_list_list,
-        chain_M_pos,
-        omit_AA_mask,
+        chain_m_pos,
+        omit_aa_mask,
         residue_idx,
         dihedral_mask,
         tied_pos_list_of_lists_list,
@@ -354,17 +351,29 @@ def tied_featurize(
     )
 
 
-def scores(S: Any, log_probs: Any, mask: Any) -> torch.Tensor:
-    """Negative log probabilities"""
+def _get_chain_data(protein: PdbDict, chain_data: ChainDataDict | None):
+    if chain_data is None or protein["name"] not in chain_data:
+        masked_chains = [
+            item.removeprefix("seq_chain_") for item in protein if item.startswith("seq_chain_")
+        ]
+        visible_chains = []
+    else:
+        masked_chains, visible_chains = chain_data[protein["name"]]
+    return masked_chains, visible_chains
+
+
+def scores(s_array: Any, log_probs: Any, mask: Any) -> torch.Tensor:
+    """Negative log probabilities."""
     criterion = nn.NLLLoss(reduction="none")
     loss = criterion(
-        log_probs.contiguous().view(-1, log_probs.size(-1)), S.contiguous().view(-1)
-    ).view(S.size())
+        log_probs.contiguous().view(-1, log_probs.size(-1)), s_array.contiguous().view(-1)
+    ).view(s_array.size())
     scores = torch.sum(loss * mask, dim=-1) / torch.sum(mask, dim=-1)
     return scores
 
 
-def S_to_seq(S: Any, mask: Any) -> str:
+def S_to_seq(S: Tensor, mask: Tensor) -> str:
+    """Convert S to an unmasked fasta sequence."""
     alphabet = "ACDEFGHIKLMNPQRSTVWYX"
     seq = "".join([alphabet[c] for c, m in zip(S.tolist(), mask.tolist()) if m > 0])
     return seq
@@ -373,15 +382,15 @@ def S_to_seq(S: Any, mask: Any) -> str:
 class CA_ProteinFeatures(nn.Module):
     def __init__(
         self,
-        edge_features,
-        node_features,
-        num_positional_embeddings=16,
-        num_rbf=16,
-        top_k=30,
-        augment_eps=0.0,
+        edge_features: Any,
+        node_features: Any,
+        num_positional_embeddings: Any = 16,
+        num_rbf: Any = 16,
+        top_k: Any = 30,
+        augment_eps: Any = 0.0,
         # num_chain_embeddings=16,
     ):
-        """Extract protein features"""
+        """Extract protein features."""
         super().__init__()
         self.edge_features = edge_features
         self.node_features = node_features
@@ -399,21 +408,22 @@ class CA_ProteinFeatures(nn.Module):
         self.norm_nodes = nn.LayerNorm(node_features)
         self.norm_edges = nn.LayerNorm(edge_features)
 
-    def _quaternions(self, R):
-        """Convert a batch of 3D rotations [R] to quaternions [Q]
+    def _quaternions(self, R: Tensor):
+        """Convert a batch of 3D rotations [R] to quaternions [Q].
+
         R [...,3,3]
         Q [...,4]
         """
         # Simple Wikipedia version
         # en.wikipedia.org/wiki/Rotation_matrix#Quaternion
-        # For other options see math.stackexchange.com/questions/2074316/calculating-rotation-axis-from-rotation-matrix
+        # For other options see https://math.stackexchange.com/questions/2074316/calculating-rotation-axis-from-rotation-matrix
         diag = torch.diagonal(R, dim1=-2, dim2=-1)
         Rxx, Ryy, Rzz = diag.unbind(-1)
         magnitudes = 0.5 * torch.sqrt(
             torch.abs(1 + torch.stack([Rxx - Ryy - Rzz, -Rxx + Ryy - Rzz, -Rxx - Ryy + Rzz], -1))
         )
 
-        def _R(i, j):
+        def _R(i: int, j: int):
             return R[:, :, :, i, j]
 
         signs = torch.sign(
@@ -422,11 +432,11 @@ class CA_ProteinFeatures(nn.Module):
         xyz = signs * magnitudes
         # The relu enforces a non-negative trace
         w = torch.sqrt(F.relu(1 + diag.sum(-1, keepdim=True))) / 2.0
-        Q = torch.cat((xyz, w), -1)
-        Q = F.normalize(Q, dim=-1)
-        return Q
+        concatenated = torch.cat((xyz, w), -1)
+        concatenated = F.normalize(concatenated, dim=-1)
+        return concatenated
 
-    def _orientations_coarse(self, X, E_idx, eps=1e-6):
+    def _orientations_coarse(self, X: Any, E_idx: Any, eps: float = 1e-6):
         dX = X[:, 1:, :] - X[:, :-1, :]
         dX_norm = torch.norm(dX, dim=-1)
         dX_mask = (3.6 < dX_norm) & (dX_norm < 4.0)  # exclude CA-CA jumps
@@ -456,14 +466,14 @@ class CA_ProteinFeatures(nn.Module):
         # Build relative orientations
         o_1 = F.normalize(u_2 - u_1, dim=-1)
         ORI = torch.stack((o_1, n_2, torch.cross(o_1, n_2)), 2)
-        ORI = ORI.view(list(ORI.shape[:2]) + [9])
+        ORI = ORI.view([*list(ORI.shape[:2]), 9])
         ORI = F.pad(ORI, (0, 0, 1, 2), "constant", 0)
         O_neighbors = gather_nodes(ORI, E_idx)
         X_neighbors = gather_nodes(X, E_idx)
 
         # Re-view as rotation matrices
-        ORI = ORI.view(list(ORI.shape[:2]) + [3, 3])
-        O_neighbors = O_neighbors.view(list(O_neighbors.shape[:3]) + [3, 3])
+        ORI = ORI.view([*list(ORI.shape[:2]), 3, 3])
+        O_neighbors = O_neighbors.view([*list(O_neighbors.shape[:3]), 3, 3])
 
         # Rotate into local reference frames
         dX = X_neighbors - X.unsqueeze(-2)
@@ -476,8 +486,8 @@ class CA_ProteinFeatures(nn.Module):
         O_features = torch.cat((dU, Q), dim=-1)
         return AD_features, O_features
 
-    def _dist(self, X, mask, eps=1e-6):
-        """Pairwise euclidean distances"""
+    def _dist(self, X: Any, mask: Any, eps: float = 1e-6):
+        """Pairwise euclidean distances."""
         # Convolutional network on NCHW
         mask_2D = torch.unsqueeze(mask, 1) * torch.unsqueeze(mask, 2)
         dX = torch.unsqueeze(X, 1) - torch.unsqueeze(X, 2)
@@ -492,7 +502,7 @@ class CA_ProteinFeatures(nn.Module):
         mask_neighbors = gather_edges(mask_2D.unsqueeze(-1), E_idx)
         return D_neighbors, E_idx, mask_neighbors
 
-    def _rbf(self, D):
+    def _rbf(self, D: Any):
         # Distance radial basis function
         device = D.device
         D_min, D_max, D_count = 2.0, 22.0, self.num_rbf
@@ -503,7 +513,7 @@ class CA_ProteinFeatures(nn.Module):
         RBF = torch.exp(-(((D_expand - D_mu) / D_sigma) ** 2))
         return RBF
 
-    def _get_rbf(self, A, B, E_idx):
+    def _get_rbf(self, A: Any, B: Any, E_idx: Any):
         D_A_B = torch.sqrt(
             torch.sum((A[:, :, None, :] - B[:, None, :, :]) ** 2, -1) + 1e-6
         )  # [B, L, L]
@@ -511,8 +521,8 @@ class CA_ProteinFeatures(nn.Module):
         RBF_A_B = self._rbf(D_A_B_neighbors)
         return RBF_A_B
 
-    def forward(self, Ca, mask, residue_idx, chain_labels):
-        """Featurize coordinates as an attributed graph"""
+    def forward(self, Ca: Any, mask: Any, residue_idx: Any, chain_labels: Any):
+        """Featurize coordinates as an attributed graph."""
         if self.augment_eps > 0:
             Ca = Ca + self.augment_eps * torch.randn_like(Ca)
 
@@ -557,15 +567,15 @@ class CA_ProteinFeatures(nn.Module):
 class ProteinFeatures(nn.Module):
     def __init__(
         self,
-        edge_features,
-        node_features,
-        num_positional_embeddings=16,
-        num_rbf=16,
-        top_k=30,
-        augment_eps=0.0,
+        edge_features: Any,
+        node_features: Any,
+        num_positional_embeddings: Any = 16,
+        num_rbf: Any = 16,
+        top_k: Any = 30,
+        augment_eps: Any = 0.0,
         # num_chain_embeddings=16,
     ):
-        """Extract protein features"""
+        """Extract protein features."""
         super().__init__()
         self.edge_features = edge_features
         self.node_features = node_features
@@ -580,7 +590,7 @@ class ProteinFeatures(nn.Module):
         self.edge_embedding = nn.Linear(edge_in, edge_features, bias=False)
         self.norm_edges = nn.LayerNorm(edge_features)
 
-    def _dist(self, X, mask, eps=1e-6):
+    def _dist(self, X: Any, mask: Any, eps: float = 1e-6):
         mask_2D = torch.unsqueeze(mask, 1) * torch.unsqueeze(mask, 2)
         dX = torch.unsqueeze(X, 1) - torch.unsqueeze(X, 2)
         D = mask_2D * torch.sqrt(torch.sum(dX**2, 3) + eps)
@@ -592,7 +602,7 @@ class ProteinFeatures(nn.Module):
         )
         return D_neighbors, E_idx
 
-    def _rbf(self, D):
+    def _rbf(self, D: Any):
         device = D.device
         D_min, D_max, D_count = 2.0, 22.0, self.num_rbf
         D_mu = torch.linspace(D_min, D_max, D_count, device=device)
@@ -602,7 +612,7 @@ class ProteinFeatures(nn.Module):
         RBF = torch.exp(-(((D_expand - D_mu) / D_sigma) ** 2))
         return RBF
 
-    def _get_rbf(self, A, B, E_idx):
+    def _get_rbf(self, A: Tensor, B: Tensor, E_idx: Tensor):
         D_A_B = torch.sqrt(
             torch.sum((A[:, :, None, :] - B[:, None, :, :]) ** 2, -1) + 1e-6
         )  # [B, L, L]
@@ -610,7 +620,7 @@ class ProteinFeatures(nn.Module):
         RBF_A_B = self._rbf(D_A_B_neighbors)
         return RBF_A_B
 
-    def forward(self, X, mask, residue_idx, chain_labels):
+    def forward(self, X: Any, mask: Any, residue_idx: Any, chain_labels: Any):
         if self.augment_eps > 0:
             X = X + self.augment_eps * torch.randn_like(X)
 
