@@ -29,12 +29,8 @@ version = {attr = "protein_mpnn.__version__"}
 [tool.setuptools.package-data]
 weights = ["models/"]
 
-[tool.pytest.ini_options]
-addopts = [
-    "--import-mode=importlib",
-]
-
 [tool.ruff]
 line-length = 100
-select = ["ALL"]
 target-version = "py311"
+select = ["ALL"]
+ignore = ["TD"]

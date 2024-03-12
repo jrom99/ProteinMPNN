@@ -1,8 +1,18 @@
+"""ProteinMPNN Command Line Interface (CLI).
+
+DESCRIPTION
+    This module defines a command line interface for the ProteinMPNN package using
+    the argparse module. It provides a way to customize the behavior of
+    ProteinMPNN via command line arguments.
+"""
+
 import argparse
 from typing import Literal
 
 
 class Namespace(argparse.Namespace):
+    """CLI namespace after `parse_args` is called."""
+
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
     ca_only: bool
     path_to_model_weights: str | None
@@ -27,10 +37,10 @@ class Namespace(argparse.Namespace):
     jsonl_path: str | None
     chain_id_jsonl: str | None
     fixed_positions_jsonl: str | None
-    omit_AAs: str
-    bias_AA_jsonl: str | None
+    omit_aas: str
+    bias_aa_jsonl: str | None
     bias_by_res_jsonl: str | None
-    omit_AA_jsonl: str | None
+    omit_aa_jsonl: str | None
     pssm_jsonl: str | None
     pssm_multi: float
     pssm_threshold: float
@@ -38,8 +48,6 @@ class Namespace(argparse.Namespace):
     pssm_bias_flag: bool
     tied_positions_jsonl: str | None
 
-# TODO: merge design_chains and chain_id_jsonl
-# TODO: merge pdb_path and jsonl_path
 
 parser = argparse.ArgumentParser()
 
@@ -59,7 +67,8 @@ parser.add_argument("--path_to_model_weights", help="Path to model weights folde
 parser.add_argument(
     "--model_name",
     default="v_48_020",
-    help="ProteinMPNN model name: v_48_002, v_48_010, v_48_020, v_48_030; v_48_010=version with 48 edges 0.10A noise (default: %(default)s)",
+    help="""ProteinMPNN model name: v_48_002, v_48_010, v_48_020, v_48_030;
+    v_48_010=version with 48 edges 0.10A noise (default: %(default)s)""",
 )
 parser.add_argument(
     "--use_soluble_model",
@@ -68,7 +77,7 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--seed", type=int, default=0, help="If set to 0 then a random seed will be picked;"
+    "--seed", type=int, default=0, help="If set to 0 then a random seed will be picked;",
 )
 
 parser.add_argument("--save_score", action="store_true", help="save score=-log_prob to npy files")
@@ -79,9 +88,12 @@ parser.add_argument(
 )
 
 parser.add_argument("--score_only", action="store_true", help="score input backbone-sequence pairs")
+
+# TODO: check --path_to_fasta argument
 parser.add_argument(
     "--path_to_fasta",
-    help="score provided input sequence in a fasta format; e.g. GGGGGG/PPPPS/WWW for chains A, B, C sorted alphabetically and separated by /",
+    help="""score provided input sequence in a fasta format;
+    e.g. GGGGGG/PPPPS/WWW for chains A, B, C sorted alphabetically and separated by /""",
 )
 
 
@@ -117,7 +129,7 @@ parser.add_argument(
     "--batch_size",
     type=int,
     default=1,
-    help="Batch size; can set higher for titan, quadro GPUs, reduce this if running out of GPU memory",
+    help="Batch size; reduce this if running out of GPU memory",
 )
 parser.add_argument("--max_length", type=int, default=200000, help="Max sequence length")
 parser.add_argument(
@@ -126,7 +138,9 @@ parser.add_argument(
     nargs="+",
     metavar="T",
     default=[0.1],
-    help="A list of temperatures, 0.2 0.25 0.5. Sampling temperature for amino acids. Suggested values 0.1, 0.15, 0.2, 0.25, 0.3. Higher values will lead to more diversity. (default: %(default)s)",
+    help="""A list of temperatures, 0.2 0.25 0.5. Sampling temperature for amino acids.
+    Suggested values 0.1, 0.15, 0.2, 0.25, 0.3.
+    Higher values will lead to more diversity. (default: %(default)s)""",
 )
 
 parser.add_argument(
@@ -135,10 +149,12 @@ parser.add_argument(
     help="Path to a folder to output sequences, e.g. /home/out/",
 )
 
+# TODO: merge pdb_path and jsonl_path
 grp = parser.add_mutually_exclusive_group(required=True)
 grp.add_argument("--pdb_path", help="Path to a single PDB to be designed")
 grp.add_argument("--jsonl_path", help="Path to a folder with parsed pdb into jsonl")
 
+# TODO: merge design_chains and chain_id_jsonl
 parser.add_argument(
     "--design_chains",
     nargs="+",
@@ -149,7 +165,8 @@ parser.add_argument(
 
 parser.add_argument(
     "--chain_id_jsonl",
-    help="Path to a dictionary specifying which chains need to be designed and which ones are fixed, if not specied all chains will be designed.",
+    help="""Path to a dictionary specifying which chains need to be designed
+    and which ones are fixed. If not specied all chains will be designed.""",
 )
 parser.add_argument(
     "--fixed_positions_jsonl",
@@ -158,24 +175,28 @@ parser.add_argument(
 parser.add_argument(
     "--omit_AAs",
     default="X",
-    help="Specify which amino acids should be omitted in the generated sequence, e.g. 'AC' would omit alanine and cystine.",
+    help="""Specify which amino acids should be omitted in the generated sequence,
+    e.g. 'AC' would omit alanine and cystine.""",
 )
 parser.add_argument(
     "--bias_AA_jsonl",
-    help="Path to a dictionary which specifies AA composion bias if neededi, e.g. {{A: -1.1, F: 0.7} would make A less likely and F more likely.",
+    help=r"""Path to a dictionary which specifies AA composion bias if needed,
+    e.g. {A: -1.1, F: 0.7} would make A less likely and F more likely.""",
 )
 
 parser.add_argument("--bias_by_res_jsonl", help="Path to dictionary with per position bias.")
 parser.add_argument(
     "--omit_AA_jsonl",
-    help="Path to a dictionary which specifies which amino acids need to be omited from design at specific chain indices",
+    help="""Path to a dictionary which specifies which amino acids need to be omited
+    from design at specific chain indices""",
 )
 parser.add_argument("--pssm_jsonl", help="Path to a dictionary with pssm")
 parser.add_argument(
     "--pssm_multi",
     type=float,
     default=0.0,
-    help="A value between [0.0, 1.0], 0.0 means do not use pssm, 1.0 ignore MPNN predictions (default: %(default)s)",
+    help="""A value between [0.0, 1.0], 0.0 means do not use pssm,
+    1.0 ignore MPNN predictions (default: %(default)s)""",
 )
 parser.add_argument(
     "--pssm_threshold",
