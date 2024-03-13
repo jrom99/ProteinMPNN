@@ -1,6 +1,7 @@
 [build-system]
 requires = [
-    "setuptools >= 61.0"
+    "setuptools >= 64.0",
+    "setuptools-scm>=8"
 ]
 build-backend = "setuptools.build_meta"
 
@@ -23,11 +24,10 @@ classifiers = [
 [project.scripts]
 protein_mpnn = "protein_mpnn.__main__:main"
 
+[tool.setuptools_scm]
+
 [tool.setuptools.dynamic]
 version = {attr = "protein_mpnn.__version__"}
-
-[tool.setuptools.package-data]
-weights = ["models/"]
 
 [tool.ruff]
 line-length = 100
