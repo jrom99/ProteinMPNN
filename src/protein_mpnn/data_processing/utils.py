@@ -8,6 +8,8 @@ FUNCTIONS
         Load protein sequence and structure data from a PDB file
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import math
@@ -16,14 +18,26 @@ import re
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Literal, NotRequired, TypedDict, TypeVar, Union
+from typing import Annotated, Any, Literal, TypeVar, Union, cast
 
 LOGGER = logging.getLogger(__name__)
 PathLike = str | Path
-JsonDict = dict[str, Union[str, int, list, "JsonDict"]]
+JsonDict = dict[str, Union[str, int, list[Any], "JsonDict"]]
 # PDB id -> (designable chains, fixed chains)
 ChainIdDictType = dict[str, tuple[list[str], list[str]]]
-DEFAULT_COORD = (math.nan, math.nan, math.nan)
+Coord = tuple[float, float, float]
+
+CoordinatesData = defaultdict[
+    Annotated[str, "chain"],
+    defaultdict[
+        Annotated[int, "residue number"],
+        defaultdict[Annotated[str, "atom name"], dict[Annotated[str, "residue altloc"], Coord]],
+    ],
+]
+DEFAULT_COORD: Coord = (math.nan, math.nan, math.nan)
+
+# NOTE: TypedDict doesn't support extra keys (see https://peps.python.org/pep-0728/)
+PdbDict = dict[str, Any]
 
 
 class EmptyPdbError(Exception):
@@ -45,24 +59,13 @@ AA3_TO_NUM = {a: n for n, a in enumerate(AA3)}
 AA3_TO_AA1 = dict(zip(AA3, AA1, strict=False))
 
 PDB_LINE_RE = re.compile(
-    r"""(?P<name>ATOM  |HETATM)
-        (?P<serial>[ \d]{5}) (?P<atom>[ a-z]{4}).(?P<resname>[ a-z]{3})
-        (?P<chain_id>[a-z0-9 ])(?P<resi>[ \d]{4})(?P<resa>.).{4}
+    r"""(?P<name>ATOM\s\s|HETATM)
+        (?P<serial>[\s\d]{5})\s(?P<atom>[\sa-z]{4}).(?P<resname>[\sa-z]{3})\s
+        (?P<chain_id>[a-z0-9\s])(?P<resi>[\s\d]{4})(?P<resa>.).{4}
         (?P<x>.{8})(?P<y>.{8})(?P<z>.{8})
         (?P<occ>.{6})(?P<tmp>.{6})(.{9})(?P<el>.{2})""",
     flags=re.IGNORECASE | re.VERBOSE,
 )
-
-
-class PdbDict(TypedDict):
-    """Protein sequence and coordinates data."""
-
-    name: str
-    num_of_chains: int
-    seq: str
-
-    seq_chain_C: NotRequired[dict[str, str]]
-    coords_chain_C: NotRequired[dict[str, list[tuple[float, float, float]]]]
 
 
 T = TypeVar("T")
@@ -91,14 +94,14 @@ def parse_fasta(filename: PathLike, limit: int = -1, omit: str = "") -> tuple[li
     sequences: list[list[str]] = []
 
     with open(filename) as file:
-        for line in file.readlines():
+        for line in file:
             if line.startswith(">"):
                 if len(header) == limit:
                     break
-                header.append(line.removeprefix(">"))
+                header.append(line.removeprefix(">").strip())
                 sequences.append([])
             else:
-                line = "".join(ch for ch in line if ch not in omit)
+                line = "".join(ch for ch in line if ch not in omit).strip()
                 sequences[-1].append(line)
 
     return header, ["".join(seq) for seq in sequences]
@@ -130,7 +133,7 @@ def try_load_jsonl(
                 data = json.loads(file.readlines()[-1])
             else:
                 data = {}
-                for obj in file.readlines():
+                for obj in file:
                     data.update(json.loads(obj))
         if success_msg:
             LOGGER.info(success_msg)
@@ -200,10 +203,7 @@ def parse_pdb_biounits(filename: PathLike, chains: str = "", atoms: list[str] | 
             }
     """
     atoms = atoms or ["N", "CA", "C"]
-    xyz: defaultdict[
-        str,
-        defaultdict[int, defaultdict[str, dict[str, tuple[float, float, float]]]],
-    ] = defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
+    xyz: CoordinatesData = defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
     seq: defaultdict[str, defaultdict[int, dict[str, str]]] = defaultdict(lambda: defaultdict(dict))
 
     with open(filename, encoding="utf-8", errors="ignore") as file:
@@ -231,7 +231,7 @@ def parse_pdb_biounits(filename: PathLike, chains: str = "", atoms: list[str] | 
                 del seq[ch]
 
     seq_: dict[str, str] = {}
-    xyz_: dict[str, dict[str, list[tuple[float, float, float]]]] = {}
+    xyz_: dict[str, dict[str, list[Coord]]] = {}
 
     for ch, coord_data in xyz.items():
         seq_data = seq[ch]
@@ -269,7 +269,7 @@ def read_pdb_jsonl(
         A list of PDB data dicts.
     """
     with open(jsonl_file) as file:
-        entries = [json.loads(line) for line in file.readlines()]
+        entries = [json.loads(line) for line in file]
 
     return filter_pdb_dicts(entries, truncate, max_length, alphabet)
 
@@ -295,14 +295,14 @@ def filter_pdb_dicts(
 
     start = time.perf_counter()
     for i, entry in enumerate(entries, 1):
-        seq = entry["seq"]
-        name = entry["name"]
+        seq: str = entry["seq"]
+        name: str = entry["name"]
 
         bad_chars = set(seq).difference(alphabet_set)
         if bad_chars:
             LOGGER.debug(f"{name} {bad_chars} {seq}")
             discard_count["bad_chars"] += 1
-        elif len(entry["seq"]) > max_length:
+        elif len(seq) > max_length:
             discard_count["too_long"] += 1
         else:
             data.append(entry)
@@ -315,7 +315,7 @@ def filter_pdb_dicts(
             elapsed = time.perf_counter() - start
             LOGGER.debug(f"{len(data)} entries ({i} loaded) in {elapsed:.1f} s")
 
-    LOGGER.debug(f"Discarded {discard_count}")
+    LOGGER.debug(f"Discarded {dict(discard_count)}")
     return data
 
 
@@ -344,6 +344,7 @@ def get_dataset_valid(
         raise FileNotFoundError(filename)
 
     if filename.lower().endswith("pdb"):
+        LOGGER.debug(f"Received .pdb file {filename}, {ca_only=}")
         pdb_dict = parse_pdb(filename, ca_only=ca_only)
         dataset_valid = filter_pdb_dicts(
             [pdb_dict],
@@ -356,12 +357,14 @@ def get_dataset_valid(
         )
 
     if isinstance(chains_to_design, str) and Path(chains_to_design).is_file():
-        chain_id_dict: dict | None = (
-            try_load_jsonl(chains_to_design, "chain_id_jsonl is NOT loaded") or {}
+        chain_id_dict = cast(
+            ChainIdDictType, try_load_jsonl(chains_to_design, "chain_id_jsonl is NOT loaded") or {}
         )
+    else:
+        chain_id_dict = {}
 
     for pdb_dict in dataset_valid:
-        name = pdb_dict["name"]
+        name: str = pdb_dict["name"]
         if name in chain_id_dict:
             continue
 
@@ -370,7 +373,7 @@ def get_dataset_valid(
         ]  # ['A','B', 'C',...]
 
         if chains_to_design:
-            designable_chains = chains_to_design
+            designable_chains = [*chains_to_design]
             fixed_chains = [c for c in all_chains if c not in chains_to_design]
         else:
             designable_chains = all_chains

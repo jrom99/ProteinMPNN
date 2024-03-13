@@ -1,6 +1,7 @@
 import logging
 import time
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import torch
@@ -8,11 +9,10 @@ from numpy.typing import NDArray
 from torch import Tensor
 from torch.nn import functional as F
 
-from protein_mpnn.features.build_features import scores as _scores, S_to_seq
-
-from protein_mpnn.models.inference_model import ProteinMPNN
 from protein_mpnn import __version__
-
+from protein_mpnn.features.build_features import S_to_seq
+from protein_mpnn.features.build_features import scores as _scores
+from protein_mpnn.models.inference_model import ProteinMPNN
 
 LOGGER = logging.getLogger(__name__)
 
@@ -30,8 +30,8 @@ def generate_sequences(
     batch_copies: int,
     temperatures: list[float],
     omit_AAs_np: NDArray[np.float32],
-    tied_positions_dict,
-    bias_AAs_np,
+    tied_positions_dict: Any,
+    bias_AAs_np: Any,
     model: ProteinMPNN,
     output_folder: Path,
     all_probs_list: list,
@@ -228,19 +228,18 @@ def generate_sequences(
                             print_model_name = "CA_model_name"
                         else:
                             print_model_name = "model_name"
+                        _data = {
+                            "score": native_score_print,
+                            "global_score": global_native_score_print,
+                            "fixed_chains": print_visible_chains,
+                            "designed_chains": print_masked_chains,
+                            print_model_name: model_name,
+                            "git_hash": commit_str,
+                            "seed": seed,
+                        }
+                        _fasta_id_data = ", ".join(f"{k}={v}" for k, v in _data.items())
                         f.write(
-                            ">{}, score={}, global_score={}, fixed_chains={}, designed_chains={}, {}={}, git_hash={}, seed={}\n{}\n".format(
-                                name_,
-                                native_score_print,
-                                global_native_score_print,
-                                print_visible_chains,
-                                print_masked_chains,
-                                print_model_name,
-                                model_name,
-                                commit_str,
-                                seed,
-                                native_seq,
-                            )
+                            f">{name_}, {_fasta_id_data}\n{native_seq}\n"
                         )  # write the native sequence
                     start = 0
                     end = 0
@@ -270,16 +269,16 @@ def generate_sequences(
                         precision=4,
                     )
                     sample_number = j * batch_copies + b_ix + 1
-                    f.write(
-                        ">T={}, sample={}, score={}, global_score={}, seq_recovery={}\n{}\n".format(
-                            temp,
-                            sample_number,
-                            score_print,
-                            global_score_print,
-                            seq_rec_print,
-                            seq,
-                        )
-                    )  # write generated sequence
+                    _data = {
+                        "T": temp,
+                        "sample": sample_number,
+                        "score": score_print,
+                        "global_score": global_score_print,
+                        "seq_recovery": seq_rec_print,
+                    }
+                    _fasta_id_data = ", ".join(f"{k}={v}" for k, v in _data.items())
+                    # write generated sequence
+                    f.write(f">{_fasta_id_data}\n{seq}\n")
     if save_score:
         np.savez(
             score_file,

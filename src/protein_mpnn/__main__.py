@@ -13,12 +13,13 @@ USAGE
 import logging
 
 from protein_mpnn.cli import Namespace, parser
-from protein_mpnn.models.run_inference import run_inference
 
 
 def main() -> None:
     """Run inference with the provided CLI arguments."""
     args = parser.parse_args(namespace=Namespace())
+
+    from protein_mpnn.models.run_inference import run_inference
     logging.basicConfig(level=args.log_level)
     run_inference(args)
 

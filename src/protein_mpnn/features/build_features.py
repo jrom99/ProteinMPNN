@@ -4,8 +4,7 @@ from typing import Any, Optional
 
 import numpy as np
 import torch
-from numpy.typing import NDArray
-from protein_mpnn.data_processing.utils import PdbDict
+from protein_mpnn.data_processing.utils import Coord, PdbDict
 from protein_mpnn.features.utils import PositionalEncodings, gather_edges, gather_nodes
 from torch import Tensor, nn
 from torch.nn import functional as F
@@ -28,8 +27,11 @@ def tied_featurize(
     """Pack and pad batch into torch tensors."""
     alphabet = "ACDEFGHIKLMNPQRSTVWYX"
     batch_size = len(batch)
-    lengths = np.array([len(b["seq"]) for b in batch], dtype=np.int32)  # sum of chain seq lengths
-    max_len = max([len(b["seq"]) for b in batch])
+
+    _lengths = [len(b["seq"]) for b in batch]
+    # sum of chain seq lengths
+    lengths = np.array(_lengths, dtype=np.int32)
+    max_len = max(_lengths)
     if ca_only:
         x_array = np.zeros([batch_size, max_len, 1, 3])
     else:
@@ -91,12 +93,12 @@ def tied_featurize(
         for letter in masked_chains:
             letter_list.append(letter)
             masked_list.append(letter)
-            chain_seq = b[f"seq_chain_{letter}"]
+            chain_seq: str = b[f"seq_chain_{letter}"]
             chain_seq = "".join([a if a != "-" else "X" for a in chain_seq])
             chain_length = len(chain_seq)
             global_idx_start_list.append(global_idx_start_list[-1] + chain_length)
             masked_chain_length_list.append(chain_length)
-            chain_coords = b[f"coords_chain_{letter}"]  # this is a dictionary
+            chain_coords: dict[str, list[Coord]] = b[f"coords_chain_{letter}"]
             chain_mask = np.ones(chain_length)  # 1.0 for masked
             if ca_only:
                 x_chain = np.array(
@@ -160,11 +162,11 @@ def tied_featurize(
         for letter in visible_chains:
             letter_list.append(letter)
             visible_list.append(letter)
-            chain_seq = b[f"seq_chain_{letter}"]
+            chain_seq: str = b[f"seq_chain_{letter}"]
             chain_seq = "".join([a if a != "-" else "X" for a in chain_seq])
             chain_length = len(chain_seq)
             global_idx_start_list.append(global_idx_start_list[-1] + chain_length)
-            chain_coords = b[f"coords_chain_{letter}"]  # this is a dictionary
+            chain_coords: dict[str, list[Coord]] = b[f"coords_chain_{letter}"]
             chain_mask = np.zeros(chain_length)  # 0.0 for visible chains
             if ca_only:
                 x_chain = np.array(
@@ -352,22 +354,23 @@ def tied_featurize(
 
 
 def _get_chain_data(protein: PdbDict, chain_data: ChainDataDict | None):
-    if chain_data is None or protein["name"] not in chain_data:
+    name: str = protein["name"]
+    if chain_data is None or name not in chain_data:
         masked_chains = [
             item.removeprefix("seq_chain_") for item in protein if item.startswith("seq_chain_")
         ]
-        visible_chains = []
+        visible_chains: list[str] = []
     else:
-        masked_chains, visible_chains = chain_data[protein["name"]]
+        masked_chains, visible_chains = chain_data[name]
     return masked_chains, visible_chains
 
 
-def scores(s_array: Any, log_probs: Any, mask: Any) -> torch.Tensor:
+def scores(S: Tensor, log_probs: Tensor, mask: Tensor) -> Tensor:
     """Negative log probabilities."""
     criterion = nn.NLLLoss(reduction="none")
     loss = criterion(
-        log_probs.contiguous().view(-1, log_probs.size(-1)), s_array.contiguous().view(-1)
-    ).view(s_array.size())
+        log_probs.contiguous().view(-1, log_probs.size(-1)), S.contiguous().view(-1)
+    ).view(S.size())
     scores = torch.sum(loss * mask, dim=-1) / torch.sum(mask, dim=-1)
     return scores
 
@@ -382,12 +385,12 @@ def S_to_seq(S: Tensor, mask: Tensor) -> str:
 class CA_ProteinFeatures(nn.Module):
     def __init__(
         self,
-        edge_features: Any,
-        node_features: Any,
+        edge_features: int,
+        node_features: int,
         num_positional_embeddings: Any = 16,
         num_rbf: Any = 16,
-        top_k: Any = 30,
-        augment_eps: Any = 0.0,
+        top_k: int = 30,
+        augment_eps: float = 0.0,
         # num_chain_embeddings=16,
     ):
         """Extract protein features."""
@@ -567,12 +570,12 @@ class CA_ProteinFeatures(nn.Module):
 class ProteinFeatures(nn.Module):
     def __init__(
         self,
-        edge_features: Any,
-        node_features: Any,
+        edge_features: int,
+        node_features: int,
         num_positional_embeddings: Any = 16,
         num_rbf: Any = 16,
-        top_k: Any = 30,
-        augment_eps: Any = 0.0,
+        top_k: int = 30,
+        augment_eps: float = 0.0,
         # num_chain_embeddings=16,
     ):
         """Extract protein features."""

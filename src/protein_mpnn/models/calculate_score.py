@@ -6,8 +6,8 @@ import torch
 from torch import Tensor
 
 from protein_mpnn.data_processing.utils import parse_fasta
-from protein_mpnn.features.build_features import scores as _scores, S_to_seq
-
+from protein_mpnn.features.build_features import S_to_seq
+from protein_mpnn.features.build_features import scores as _scores
 from protein_mpnn.models.inference_model import ProteinMPNN
 
 LOGGER = logging.getLogger(__name__)
@@ -99,7 +99,15 @@ def calculate_score_only(
 
         _a = name_ if fc == 0 else f"{name_}_{fc}"
         _b = "PDB" if fc == 0 else "FASTA"
+        _data = {
+            "mean": ns_mean_print,
+            "std": ns_std_print,
+            "sample size": ns_sample_size,
+            "global mean": global_ns_mean_print,
+            "global std": global_ns_std_print,
+            "global sample size": ns_sample_size
+        }
+        _data_print = ",".join(f"{k}: {v}" for k, v in _data.items())
 
-        LOGGER.debug(
-            f"Score for {_a} from {_b}, mean: {ns_mean_print}, std: {ns_std_print}, sample size: {ns_sample_size},  global score, mean: {global_ns_mean_print}, std: {global_ns_std_print}, sample size: {ns_sample_size}"
-        )
+        LOGGER.debug(f"Score for {_a} from {_b}: {_data_print}")
+

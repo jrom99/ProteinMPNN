@@ -21,17 +21,17 @@ LOGGER = logging.getLogger(__name__)
 class ProteinMPNN(nn.Module):
     def __init__(
         self,
-        num_letters,
-        node_features,
-        edge_features,
-        hidden_dim,
-        num_encoder_layers=3,
-        num_decoder_layers=3,
-        vocab=21,
-        k_neighbors=64,
-        augment_eps=0.05,
-        dropout=0.1,
-        ca_only=False,
+        num_letters: int,
+        node_features: int,
+        edge_features: int,
+        hidden_dim: int,
+        num_encoder_layers: int = 3,
+        num_decoder_layers: int = 3,
+        vocab: int = 21,
+        k_neighbors: int = 64,
+        augment_eps: float = 0.05,
+        dropout: float = 0.1,
+        ca_only: bool = False,
     ):
         super().__init__()
 
@@ -87,7 +87,7 @@ class ProteinMPNN(nn.Module):
         use_input_decoding_order=False,
         decoding_order: Optional[Tensor] = None,
     ):
-        """Graph-conditioned sequence model"""
+        """Graph-conditioned sequence model."""
         device = X.device
         # Prepare node and edge embeddings
         E, E_idx = self.features(X, mask, residue_idx, chain_encoding_all)

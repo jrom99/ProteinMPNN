@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from protein_mpnn.cli import Namespace
 from protein_mpnn.data_processing.utils import get_dataset_valid, try_load_jsonl
 from protein_mpnn.features.build_features import tied_featurize
 from protein_mpnn.models import HIDDEN_DIM, NUM_LAYERS
@@ -17,23 +18,25 @@ from protein_mpnn.models.calculate_score import calculate_score_only
 from protein_mpnn.models.generate_sequences import generate_sequences
 from protein_mpnn.models.inference_model import ProteinMPNN
 from protein_mpnn.models.utils import get_model
-from protein_mpnn.cli import Namespace
 
 LOGGER = logging.getLogger(__name__)
 
 
 # TODO: replace with actual arguments
 # TODO: check omit_AA_dict versus omit_AA_np versus omit_AA_mask
-
+# BUG: generate_sequences returns multiple nan instead of values
+# TODO: add more debug logs to discover what is happening
 
 def run_inference(args: Namespace):
-    seed = args.seed or random.randint(0, 999)
+    seed = args.seed or random.randint(0, 999)  # noqa: S311
 
     torch.manual_seed(seed)
     random.seed(seed)
     np.random.seed(seed)
 
-    checkpoint_path = get_model(args.model_name, args.ca_only, args.use_soluble_model)
+    checkpoint_path = get_model(
+        args.model_name, ca_only=args.ca_only, use_soluble_model=args.use_soluble_model
+    )
 
     num_batches = args.num_seq_per_target // args.batch_size
     BATCH_COPIES = args.batch_size
@@ -67,12 +70,10 @@ def run_inference(args: Namespace):
                 bias_AAs_np[n] = bias_AA_dict[AA]
 
     chain_id_dict, dataset_valid = get_dataset_valid(
-        args.pdb_path,
-        args.design_chains,
-        args.jsonl_path,
-        args.chain_id_jsonl,
-        args.ca_only,
-        args.max_length,
+        args.pdb_path or args.jsonl_path,
+        args.design_chains or args.chain_id_jsonl,
+        ca_only=args.ca_only,
+        max_length=args.max_length,
     )
 
     checkpoint = torch.load(checkpoint_path, map_location=device)
@@ -133,12 +134,12 @@ def run_inference(args: Namespace):
             ) = tied_featurize(
                 batch_clones,
                 device,
-                chain_id_dict,
-                fixed_positions_dict,
-                omit_AA_dict,
-                tied_positions_dict,
-                pssm_dict,
-                bias_by_res_dict,
+                chain_data=chain_id_dict,
+                fixed_position_data=fixed_positions_dict,
+                omit_aa_data=omit_AA_dict,
+                tied_positions_data=tied_positions_dict,
+                pssm_data=pssm_dict,
+                bias_by_res_data=bias_by_res_dict,
                 ca_only=args.ca_only,
             )
             pssm_log_odds_mask = (

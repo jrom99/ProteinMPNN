@@ -37,10 +37,10 @@ class Namespace(argparse.Namespace):
     jsonl_path: str | None
     chain_id_jsonl: str | None
     fixed_positions_jsonl: str | None
-    omit_aas: str
-    bias_aa_jsonl: str | None
+    omit_AAs: str
+    bias_AA_jsonl: str | None
     bias_by_res_jsonl: str | None
-    omit_aa_jsonl: str | None
+    omit_AA_jsonl: str | None
     pssm_jsonl: str | None
     pssm_multi: float
     pssm_threshold: float
