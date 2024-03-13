@@ -1,5 +1,6 @@
 """Builds torch features from protein structure data."""
 
+import logging
 from typing import Any, Optional
 
 import numpy as np
@@ -9,6 +10,7 @@ from protein_mpnn.features.utils import PositionalEncodings, gather_edges, gathe
 from torch import Tensor, nn
 from torch.nn import functional as F
 
+LOGGER = logging.getLogger(__name__)
 ChainDataDict = dict[str, tuple[list[str], list[str]]]
 
 

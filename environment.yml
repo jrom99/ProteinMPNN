@@ -17,4 +17,4 @@ dependencies:
   - dgl
   - pip
   - pip:
-    - .
+    - -e .

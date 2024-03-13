@@ -24,8 +24,7 @@ LOGGER = logging.getLogger(__name__)
 
 # TODO: replace with actual arguments
 # TODO: check omit_AA_dict versus omit_AA_np versus omit_AA_mask
-# BUG: generate_sequences returns multiple nan instead of values
-# TODO: add more debug logs to discover what is happening
+
 
 def run_inference(args: Namespace):
     seed = args.seed or random.randint(0, 999)  # noqa: S311

@@ -59,7 +59,7 @@ AA3_TO_NUM = {a: n for n, a in enumerate(AA3)}
 AA3_TO_AA1 = dict(zip(AA3, AA1, strict=False))
 
 PDB_LINE_RE = re.compile(
-    r"""(?P<name>ATOM\s\s|HETATM)
+    r"""(?P<type>ATOM\s\s|HETATM)
         (?P<serial>[\s\d]{5})\s(?P<atom>[\sa-z]{4}).(?P<resname>[\sa-z]{3})\s
         (?P<chain_id>[a-z0-9\s])(?P<resi>[\s\d]{4})(?P<resa>.).{4}
         (?P<x>.{8})(?P<y>.{8})(?P<z>.{8})
@@ -212,7 +212,7 @@ def parse_pdb_biounits(filename: PathLike, chains: str = "", atoms: list[str] | 
                 continue
 
             chain = m["chain_id"]
-            atom = m["name"].strip()
+            atom = m["atom"].strip()
             resname = m["resname"].strip()
             resi = int(m["resi"].strip())
             resa = m["resa"].strip()

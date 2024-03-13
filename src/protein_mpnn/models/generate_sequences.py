@@ -149,6 +149,7 @@ def generate_sequences(
                     )
                     # Compute scores
                     S_sample = sample_dict["S"]
+
                 log_probs = model(
                     X,
                     S_sample,
@@ -172,23 +173,23 @@ def generate_sequences(
                 all_probs_list.append(sample_dict["probs"].cpu().data.numpy())
                 all_log_probs_list.append(log_probs.cpu().data.numpy())
                 S_sample_list.append(S_sample.cpu().data.numpy())
-                for b_ix in range(batch_copies):
-                    masked_chain_length_list = masked_chain_length_list_list[b_ix]
-                    masked_list = masked_list_list[b_ix]
+                for b_idx in range(batch_copies):
+                    masked_chain_length_list = masked_chain_length_list_list[b_idx]
+                    masked_list = masked_list_list[b_idx]
                     seq_recovery_rate = torch.sum(
                         torch.sum(
-                            F.one_hot(S[b_ix], 21) * F.one_hot(S_sample[b_ix], 21),
+                            F.one_hot(S[b_idx], 21) * F.one_hot(S_sample[b_idx], 21),
                             dim=-1,
                         )
-                        * mask_for_loss[b_ix]
-                    ) / torch.sum(mask_for_loss[b_ix])
-                    seq = S_to_seq(S_sample[b_ix], chain_M[b_ix])
-                    score = scores[b_ix]
+                        * mask_for_loss[b_idx]
+                    ) / torch.sum(mask_for_loss[b_idx])
+                    seq = S_to_seq(S_sample[b_idx], chain_M[b_idx])
+                    score = scores[b_idx]
                     score_list.append(score)
-                    global_score = global_scores[b_ix]
+                    global_score = global_scores[b_idx]
                     global_score_list.append(global_score)
-                    native_seq = S_to_seq(S[b_ix], chain_M[b_ix])
-                    if b_ix == 0 and j == 0 and temp == temperatures[0]:
+                    native_seq = S_to_seq(S[b_idx], chain_M[b_idx])
+                    if b_idx == 0 and j == 0 and temp == temperatures[0]:
                         start = 0
                         end = 0
                         list_of_AAs = []
@@ -268,7 +269,7 @@ def generate_sequences(
                         unique=False,
                         precision=4,
                     )
-                    sample_number = j * batch_copies + b_ix + 1
+                    sample_number = j * batch_copies + b_idx + 1
                     _data = {
                         "T": temp,
                         "sample": sample_number,
