@@ -175,4 +175,4 @@ cython_debug/
 #.idea/
 
 # Ruff linter
-ruff_cache/
+.ruff_cache/

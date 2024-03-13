@@ -21,7 +21,7 @@ classifiers = [
 ]
 
 [project.scripts]
-protein_mpnn = "protein_mpnn:main"
+protein_mpnn = "protein_mpnn.__main__:main"
 
 [tool.setuptools.dynamic]
 version = {attr = "protein_mpnn.__version__"}
