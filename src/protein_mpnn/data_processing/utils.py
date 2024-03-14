@@ -2,10 +2,6 @@
 
 DESCRIPTION
     This module contains utility functions for processing data related to ProteinMPNN.
-
-FUNCTIONS
-    parse_pdb(file, chains, ca_only)
-        Load protein sequence and structure data from a PDB file
 """
 
 from __future__ import annotations
@@ -18,7 +14,7 @@ import re
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Annotated, Any, Literal, TypeVar, Union, cast
+from typing import Annotated, Any, Literal, TypeVar, Union
 
 LOGGER = logging.getLogger(__name__)
 PathLike = str | Path
@@ -46,6 +42,13 @@ class EmptyPdbError(Exception):
     def __init__(self, filename: PathLike):
         """Initialize the exception."""
         super().__init__(f"Empty PDB file '{filename!s}'")
+
+
+class NoValidStructureError(Exception):
+    """If no structure passes the provided filters."""
+
+    def __init__(self, filename: PathLike, filter_msg: str):
+        super().__init__(f"No structure in {Path(filename).name} passes the filters {filter_msg!r}")
 
 
 AA1 = "ARNDCQEGHILKMFPSTWYV-"
@@ -143,40 +146,6 @@ def try_load_jsonl(
     return data
 
 
-def parse_pdb(filename: PathLike, *, chains: str = "", ca_only: bool = False) -> PdbDict:
-    """Parses a PDB file.
-
-    Args:
-        filename: Path to PDB file.
-        chains (optional): Which chains to read from the file. Defaults to all.
-        ca_only: Store only CA data? Defaults to False.
-
-    Returns:
-        A dict with PDB attributes:
-            name;
-            number of chains;
-            fasta sequence;
-            atom coordinates per chain;
-            fasta sequence per chain
-    """
-    sidechain_atoms = ["CA"] if ca_only else ["N", "CA", "C", "O"]
-    xyz, seq = parse_pdb_biounits(filename, chains, sidechain_atoms)
-
-    pdb_dict: PdbDict = {
-        "name": Path(filename).stem,
-        "num_of_chains": len(seq),
-        "seq": "".join(s for _, s in sorted(seq.items())),
-    }
-
-    for chain in sorted(seq):
-        coords_data = {f"{atom}_chain_{chain}": xyz[chain][atom] for atom in sidechain_atoms}
-
-        pdb_dict[f"seq_chain_{chain}"] = seq[chain]
-        pdb_dict[f"coords_chain_{chain}"] = coords_data
-
-    return pdb_dict
-
-
 def parse_pdb_biounits(filename: PathLike, chains: str = "", atoms: list[str] | None = None):
     """Parse a PDB file into a dictionary with sequence and coordinates per chain.
 
@@ -251,29 +220,6 @@ def parse_pdb_biounits(filename: PathLike, chains: str = "", atoms: list[str] | 
     return xyz_, seq_
 
 
-def read_pdb_jsonl(
-    jsonl_file: PathLike,
-    truncate: int = -1,
-    max_length: int = 100,
-    alphabet: str = "ACDEFGHIKLMNPQRSTVWYX-",
-):
-    """Parse a JSONL file representing multiple PDB structures.
-
-    Args:
-        jsonl_file: Path to JSONL file.
-        truncate (optional): Number of structures to read from file. Defaults to all.
-        max_length (optional): Maximum fasta sequence size. Defaults to 100.
-        alphabet (optional): Valid characters to read from file. Defaults to normal aminoacids.
-
-    Returns:
-        A list of PDB data dicts.
-    """
-    with open(jsonl_file) as file:
-        entries = [json.loads(line) for line in file]
-
-    return filter_pdb_dicts(entries, truncate, max_length, alphabet)
-
-
 def filter_pdb_dicts(
     entries: list[PdbDict],
     truncate: int = -1,
@@ -317,68 +263,3 @@ def filter_pdb_dicts(
 
     LOGGER.debug(f"Discarded {dict(discard_count)}")
     return data
-
-
-def get_dataset_valid(
-    filename: str | None,
-    chains_to_design: list[str] | str | None,
-    *,
-    ca_only: bool,
-    max_length: int,
-) -> tuple[ChainIdDictType, list[PdbDict]]:
-    """Parses a .pdb or .jsonl file and marks the chains to design.
-
-    Args:
-        filename: Path to .pdb or .jsonl file.
-        chains_to_design: Path to .jsonl or list of chains to design.
-        ca_only: Whether to read only CA data.
-        max_length: Maximum sequence lenght.
-
-    Returns:
-        tuple (chain_ids, dataset_valid) where
-
-        chain_ids is a dict[PDB id -> (designable_chains, fixed_chains)]
-        dataset_valid is a list of PDB data dictionaries
-    """
-    if filename is None or not Path(filename).is_file():
-        raise FileNotFoundError(filename)
-
-    if filename.lower().endswith("pdb"):
-        LOGGER.debug(f"Received .pdb file {filename}, {ca_only=}")
-        pdb_dict = parse_pdb(filename, ca_only=ca_only)
-        dataset_valid = filter_pdb_dicts(
-            [pdb_dict],
-            max_length=max_length,
-        )
-    else:
-        dataset_valid = read_pdb_jsonl(
-            filename,
-            max_length=max_length,
-        )
-
-    if isinstance(chains_to_design, str) and Path(chains_to_design).is_file():
-        chain_id_dict = cast(
-            ChainIdDictType, try_load_jsonl(chains_to_design, "chain_id_jsonl is NOT loaded") or {}
-        )
-    else:
-        chain_id_dict = {}
-
-    for pdb_dict in dataset_valid:
-        name: str = pdb_dict["name"]
-        if name in chain_id_dict:
-            continue
-
-        all_chains = [
-            key.removeprefix("seq_chain_") for key in pdb_dict if key.startswith("seq_chain")
-        ]  # ['A','B', 'C',...]
-
-        if chains_to_design:
-            designable_chains = [*chains_to_design]
-            fixed_chains = [c for c in all_chains if c not in chains_to_design]
-        else:
-            designable_chains = all_chains
-            fixed_chains = []
-
-        chain_id_dict[name] = (designable_chains, fixed_chains)
-
-    return chain_id_dict, dataset_valid

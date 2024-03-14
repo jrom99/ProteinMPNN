@@ -7,10 +7,7 @@ import numpy as np
 import torch
 
 from protein_mpnn.cli import Namespace
-from protein_mpnn.data_processing.utils import (
-    get_dataset_valid,
-    try_load_jsonl,
-)
+from protein_mpnn.data_processing import get_dataset_valid, try_load_jsonl
 from protein_mpnn.features.build_features import tied_featurize
 from protein_mpnn.models import HIDDEN_DIM, NUM_LAYERS
 from protein_mpnn.models.calculate_probs import (
