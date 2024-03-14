@@ -7,7 +7,10 @@ import numpy as np
 import torch
 
 from protein_mpnn.cli import Namespace
-from protein_mpnn.data_processing.utils import get_dataset_valid, try_load_jsonl
+from protein_mpnn.data_processing.utils import (
+    get_dataset_valid,
+    try_load_jsonl,
+)
 from protein_mpnn.features.build_features import tied_featurize
 from protein_mpnn.models import HIDDEN_DIM, NUM_LAYERS
 from protein_mpnn.models.calculate_probs import (
@@ -17,7 +20,7 @@ from protein_mpnn.models.calculate_probs import (
 from protein_mpnn.models.calculate_score import calculate_score_only
 from protein_mpnn.models.generate_sequences import generate_sequences
 from protein_mpnn.models.inference_model import ProteinMPNN
-from protein_mpnn.models.utils import get_model
+from protein_mpnn.models.utils import get_checkpoint
 
 LOGGER = logging.getLogger(__name__)
 
@@ -33,7 +36,7 @@ def run_inference(args: Namespace):
     random.seed(seed)
     np.random.seed(seed)
 
-    checkpoint_path = get_model(
+    checkpoint_path = get_checkpoint(
         args.model_name, ca_only=args.ca_only, use_soluble_model=args.use_soluble_model
     )
 

@@ -1,9 +1,18 @@
+"""utils.py - ProteinMPNN Model utilities.
+
+DESCRIPTION
+    This module contains utility functions for loading model checkpoints.
+
+FUNCTIONS
+    get_checkpoint(model_name, ca_only, use_soluble_model)
+        Return the path to a model checkpoint file.
+"""
+
 import logging
-from pathlib import Path
 from importlib.resources import files
+from pathlib import Path
 
 import protein_mpnn
-
 
 LOGGER = logging.getLogger(__name__)
 
@@ -11,22 +20,17 @@ LOGGER = logging.getLogger(__name__)
 class CheckpointNotFoundError(FileNotFoundError):
     """If a pytorch checkpoint file is missing."""
 
-class CheckpointDirNotFoundError(CheckpointNotFoundError):
-    """If the weights dir is missing."""
-    def __init__(self, file: str | Path) -> None:
-        super().__init__(f"Missing WEIGHTS directory: {file!s}")
 
-
-def get_model(model_name: str, *, ca_only: bool, use_soluble_model: bool) -> Path:
+def get_checkpoint(model_name: str, *, ca_only: bool, use_soluble_model: bool) -> Path:
     """Return model checkpoint file."""
     if Path(model_name).is_file():
         checkpoint_path = Path(model_name)
 
     weights = files(protein_mpnn) / "weights"
-    LOGGER.debug(f"WEIGHTS DIR: {weights!r}")
 
     if not weights.is_dir():
-        raise CheckpointDirNotFoundError(str(weights))
+        msg = f"Missing WEIGHTS directory: {weights!s}"
+        raise CheckpointNotFoundError(msg)
 
     if ca_only:
         LOGGER.info("Using CA-ProteinMPNN!")

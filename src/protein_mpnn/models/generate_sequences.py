@@ -224,7 +224,6 @@ def generate_sequences(
                             precision=4,
                         )
 
-                        commit_str = __version__
                         if ca_only:
                             print_model_name = "CA_model_name"
                         else:
@@ -235,7 +234,7 @@ def generate_sequences(
                             "fixed_chains": print_visible_chains,
                             "designed_chains": print_masked_chains,
                             print_model_name: model_name,
-                            "git_hash": commit_str,
+                            "version": __version__,
                             "seed": seed,
                         }
                         _fasta_id_data = ", ".join(f"{k}={v}" for k, v in _data.items())
