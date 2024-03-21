@@ -231,16 +231,15 @@ def generate_sequences(
                         _data = {
                             "score": native_score_print,
                             "global_score": global_native_score_print,
-                            "fixed_chains": print_visible_chains,
-                            "designed_chains": print_masked_chains,
+                            "fixed_chains": "".join(print_visible_chains),
+                            "designed_chains": "".join(print_masked_chains),
                             print_model_name: model_name,
                             "version": __version__,
                             "seed": seed,
                         }
                         _fasta_id_data = ", ".join(f"{k}={v}" for k, v in _data.items())
-                        f.write(
-                            f">{name_}, {_fasta_id_data}\n{native_seq}\n"
-                        )  # write the native sequence
+                        # write the native sequence
+                        f.write(f">{name_}, {_fasta_id_data}\n{native_seq}\n")
                     start = 0
                     end = 0
                     list_of_AAs = []
@@ -302,3 +301,4 @@ def generate_sequences(
     num_seqs = len(temperatures) * num_batches * batch_copies
     total_length = X.shape[1]
     LOGGER.info(f"{num_seqs} sequences of length {total_length} generated in {dt} seconds")
+    return ali_file

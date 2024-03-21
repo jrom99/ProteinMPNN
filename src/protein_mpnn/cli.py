@@ -77,7 +77,10 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--seed", type=int, default=0, help="If set to 0 then a random seed will be picked;",
+    "--seed",
+    type=int,
+    default=None,
+    help="If not set then a random seed will be picked.",
 )
 
 parser.add_argument("--save_score", action="store_true", help="save score=-log_prob to npy files")

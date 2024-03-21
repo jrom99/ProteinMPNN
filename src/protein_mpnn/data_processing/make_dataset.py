@@ -85,12 +85,15 @@ def get_dataset_valid(
         chain_ids is a dict[PDB id -> (designable_chains, fixed_chains)]
         dataset_valid is a list of PDB data dictionaries
     """
-    if filename is None or not Path(filename).is_file():
+    if filename is None or not Path(filename).exists():
         raise FileNotFoundError(filename)
 
     if filename.lower().endswith("pdb"):
         LOGGER.debug(f"Received .pdb file {filename}")
         pdb_dicts = [parse_pdb(filename, ca_only=ca_only)]
+    elif Path(filename).is_dir():
+        LOGGER.debug(f"Received directory of PDB files {filename}")
+        pdb_dicts = [parse_pdb(file, ca_only=ca_only) for file in Path(filename).glob("*.pdb")]
     else:
         LOGGER.debug(f"Received .jsonl file {filename}")
         with open(filename) as file:

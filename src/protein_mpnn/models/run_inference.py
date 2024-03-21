@@ -1,7 +1,9 @@
 import copy
 import logging
 import random
+import sys
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import torch
@@ -24,14 +26,16 @@ LOGGER = logging.getLogger(__name__)
 
 # TODO: replace with actual arguments
 # TODO: check omit_AA_dict versus omit_AA_np versus omit_AA_mask
+def make_deterministic(seed=0):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
 
 
 def run_inference(args: Namespace):
-    seed = args.seed or random.randint(0, 999)  # noqa: S311
+    seed = args.seed if args.seed is not None else random.randrange(sys.maxsize) # noqa: S311
 
-    torch.manual_seed(seed)
-    random.seed(seed)
-    np.random.seed(seed)
+    make_deterministic(seed)
 
     checkpoint_path = get_checkpoint(
         args.model_name, ca_only=args.ca_only, use_soluble_model=args.use_soluble_model
@@ -43,6 +47,7 @@ def run_inference(args: Namespace):
     alphabet = "ACDEFGHIKLMNPQRSTVWYX"
     alphabet_dict = dict(zip(alphabet, range(21)))
     omit_AAs_np = np.array([AA in omit_AAs_list for AA in alphabet]).astype(np.float32)
+    # TODO: use a get_device function that listens to a device_name setting
     device = torch.device("cuda:0" if (torch.cuda.is_available()) else "cpu")
 
     fixed_positions_dict = try_load_jsonl(
@@ -101,6 +106,7 @@ def run_inference(args: Namespace):
     output_folder.mkdir(parents=True, exist_ok=True)
 
     # Validation epoch
+    output: list[Any] = []
     with torch.no_grad():
         # test_sum, test_weights = 0.0, 0.0
         for protein in dataset_valid:
@@ -146,7 +152,7 @@ def run_inference(args: Namespace):
             ).float()  # 1.0 for true, 0.0 for false
 
             if args.score_only:
-                calculate_score_only(
+                res = calculate_score_only(
                     args.path_to_fasta,
                     num_batches,
                     alphabet_dict,
@@ -163,7 +169,7 @@ def run_inference(args: Namespace):
                     name_,
                 )
             elif args.conditional_probs_only:
-                calculate_conditional_probs(
+                res = calculate_conditional_probs(
                     args.conditional_probs_only_backbone,
                     num_batches,
                     model,
@@ -178,7 +184,7 @@ def run_inference(args: Namespace):
                     name_,
                 )
             elif args.unconditional_probs_only:
-                calculate_unconditional_probs(
+                res = calculate_unconditional_probs(
                     num_batches,
                     model,
                     output_folder,
@@ -192,7 +198,7 @@ def run_inference(args: Namespace):
                     name_,
                 )
             else:
-                generate_sequences(
+                res = generate_sequences(
                     args.pssm_multi,
                     args.pssm_log_odds_flag,
                     args.pssm_bias_flag,
@@ -232,3 +238,5 @@ def run_inference(args: Namespace):
                     pssm_log_odds_mask,
                     name_,
                 )
+            output.append(res)
+    return output

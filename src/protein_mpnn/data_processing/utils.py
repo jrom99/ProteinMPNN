@@ -16,6 +16,10 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Annotated, Any, Literal, TypeVar, Union
 
+# TODO: move types to a types.py file
+# TODO: use constants in the format AMINOACIDS_3TO1
+# TODO: add non cannonical AA3
+
 LOGGER = logging.getLogger(__name__)
 PathLike = str | Path
 JsonDict = dict[str, Union[str, int, list[Any], "JsonDict"]]
