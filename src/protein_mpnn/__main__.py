@@ -20,7 +20,7 @@ def main() -> None:
     args = parser.parse_args(namespace=Namespace())
 
     from protein_mpnn.models.run_inference import run_inference
-    logging.basicConfig(level=args.log_level)
+    logging.basicConfig(level=args.log_level.upper())
     run_inference(args)
 
 

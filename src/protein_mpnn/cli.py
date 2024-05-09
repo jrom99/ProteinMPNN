@@ -7,13 +7,12 @@ DESCRIPTION
 """
 
 import argparse
-from typing import Literal
 
 
 class Namespace(argparse.Namespace):
     """CLI namespace after `parse_args` is called."""
 
-    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+    log_level: str
     ca_only: bool
     path_to_model_weights: str | None
     model_name: str
@@ -54,24 +53,23 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     "--log-level",
     default="INFO",
-    choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
     help="Hide intermediate outputs",
 )
 
 parser.add_argument(
-    "--ca_only",
+    "--ca-only",
     action="store_true",
     help="Parse CA-only structures and use CA-only models",
 )
-parser.add_argument("--path_to_model_weights", help="Path to model weights folder")
+parser.add_argument("--path-to-model-weights", help="Path to model weights folder")
 parser.add_argument(
-    "--model_name",
+    "--model-name",
     default="v_48_020",
     help="""ProteinMPNN model name: v_48_002, v_48_010, v_48_020, v_48_030;
     v_48_010=version with 48 edges 0.10A noise (default: %(default)s)""",
 )
 parser.add_argument(
-    "--use_soluble_model",
+    "--use-soluble-model",
     action="store_true",
     help="Load ProteinMPNN weights trained on soluble proteins only.",
 )
@@ -83,60 +81,60 @@ parser.add_argument(
     help="If not set then a random seed will be picked.",
 )
 
-parser.add_argument("--save_score", action="store_true", help="save score=-log_prob to npy files")
+parser.add_argument("--save-score", action="store_true", help="save score=-log_prob to npy files")
 parser.add_argument(
-    "--save_probs",
+    "--save-probs",
     action="store_true",
     help="save MPNN predicted probabilites per position",
 )
 
-parser.add_argument("--score_only", action="store_true", help="score input backbone-sequence pairs")
+parser.add_argument("--score-only", action="store_true", help="score input backbone-sequence pairs")
 
-# TODO: check --path_to_fasta argument
+# TODO: check --path-to-fasta argument
 parser.add_argument(
-    "--path_to_fasta",
+    "--path-to-fasta",
     help="""score provided input sequence in a fasta format;
     e.g. GGGGGG/PPPPS/WWW for chains A, B, C sorted alphabetically and separated by /""",
 )
 
 
 parser.add_argument(
-    "--conditional_probs_only",
+    "--conditional-probs-only",
     action="store_true",
     help="output conditional probabilities p(s_i given the rest of the sequence and backbone)",
 )
 parser.add_argument(
-    "--conditional_probs_only_backbone",
+    "--conditional-probs-only-backbone",
     action="store_true",
     help="if true output conditional probabilities p(s_i given backbone)",
 )
 parser.add_argument(
-    "--unconditional_probs_only",
+    "--unconditional-probs-only",
     action="store_true",
     help="output unconditional probabilities p(s_i given backbone) in one forward pass",
 )
 
 parser.add_argument(
-    "--backbone_noise",
+    "--backbone-noise",
     type=float,
     default=0.00,
-    help="Standard deviation of Gaussian noise to add to backbone atoms",
+    help="Standard deviation of Gaussian noise to add to backbone atoms (default: %(default)s)",
 )
 parser.add_argument(
-    "--num_seq_per_target",
+    "--num-seq-per-target",
     type=int,
     default=1,
-    help="Number of sequences to generate per target",
+    help="Number of sequences to generate per target (default: %(default)s)",
 )
 parser.add_argument(
-    "--batch_size",
+    "--batch-size",
     type=int,
     default=1,
-    help="Batch size; reduce this if running out of GPU memory",
+    help="Batch size; reduce this if running out of GPU memory (default: %(default)s)",
 )
-parser.add_argument("--max_length", type=int, default=200000, help="Max sequence length")
+parser.add_argument("--max-length", type=int, default=200000, help="Max sequence length")
 parser.add_argument(
-    "--sampling_temp",
+    "--sampling-temp",
     type=float,
     nargs="+",
     metavar="T",
@@ -147,19 +145,19 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--out_folder",
+    "--out-folder",
     required=True,
     help="Path to a folder to output sequences, e.g. /home/out/",
 )
 
 # TODO: merge pdb_path and jsonl_path
 grp = parser.add_mutually_exclusive_group(required=True)
-grp.add_argument("--pdb_path", help="Path to a single PDB to be designed")
-grp.add_argument("--jsonl_path", help="Path to a folder with parsed pdb into jsonl")
+grp.add_argument("--pdb-path", help="Path to a single PDB to be designed")
+grp.add_argument("--jsonl-path", help="Path to a folder with parsed pdb into jsonl")
 
 # TODO: merge design_chains and chain_id_jsonl
 parser.add_argument(
-    "--design_chains",
+    "--design-chains",
     nargs="+",
     metavar="C",
     default=None,
@@ -167,50 +165,50 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--chain_id_jsonl",
+    "--chain-id-jsonl",
     help="""Path to a dictionary specifying which chains need to be designed
     and which ones are fixed. If not specied all chains will be designed.""",
 )
 parser.add_argument(
-    "--fixed_positions_jsonl",
+    "--fixed-positions-jsonl",
     help="Path to a dictionary with fixed positions",
 )
 parser.add_argument(
-    "--omit_AAs",
+    "--omit-AAs",
     default="X",
     help="""Specify which amino acids should be omitted in the generated sequence,
     e.g. 'AC' would omit alanine and cystine.""",
 )
 parser.add_argument(
-    "--bias_AA_jsonl",
+    "--bias-AA-jsonl",
     help=r"""Path to a dictionary which specifies AA composion bias if needed,
     e.g. {A: -1.1, F: 0.7} would make A less likely and F more likely.""",
 )
 
-parser.add_argument("--bias_by_res_jsonl", help="Path to dictionary with per position bias.")
+parser.add_argument("--bias-by-res-jsonl", help="Path to dictionary with per position bias.")
 parser.add_argument(
-    "--omit_AA_jsonl",
+    "--omit-AA-jsonl",
     help="""Path to a dictionary which specifies which amino acids need to be omited
     from design at specific chain indices""",
 )
-parser.add_argument("--pssm_jsonl", help="Path to a dictionary with pssm")
+parser.add_argument("--pssm-jsonl", help="Path to a dictionary with pssm")
 parser.add_argument(
-    "--pssm_multi",
+    "--pssm-multi",
     type=float,
     default=0.0,
     help="""A value between [0.0, 1.0], 0.0 means do not use pssm,
     1.0 ignore MPNN predictions (default: %(default)s)""",
 )
 parser.add_argument(
-    "--pssm_threshold",
+    "--pssm-threshold",
     type=float,
     default=0.0,
     help="A value between -inf + inf to restric per position AAs (default: %(default)s)",
 )
-parser.add_argument("--pssm_log_odds_flag", action="store_true")
-parser.add_argument("--pssm_bias_flag", action="store_true")
+parser.add_argument("--pssm-log-odds-flag", action="store_true")
+parser.add_argument("--pssm-bias-flag", action="store_true")
 
 parser.add_argument(
-    "--tied_positions_jsonl",
+    "--tied-positions-jsonl",
     help="Path to a dictionary with tied positions",
 )
