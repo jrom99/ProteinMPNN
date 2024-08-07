@@ -70,7 +70,7 @@ PDB_LINE_RE = re.compile(
         (?P<serial>[\s\d]{5})\s(?P<atom>[\sa-z]{4}).(?P<resname>[\sa-z]{3})\s
         (?P<chain_id>[a-z0-9\s])(?P<resi>[\s\d]{4})(?P<resa>.).{4}
         (?P<x>.{8})(?P<y>.{8})(?P<z>.{8})
-        (?P<occ>.{6})(?P<tmp>.{6})(.{9})(?P<el>.{2})""",
+        (?P<occ>.{6})?(?P<tmp>.{6})(.{9})?(?P<el>.{2})?""",
     flags=re.IGNORECASE | re.VERBOSE,
 )
 
